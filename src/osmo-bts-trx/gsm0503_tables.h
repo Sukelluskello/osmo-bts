@@ -44,5 +44,6 @@ extern const sbit_t gsm0503_afs_ic_sbit[4][8];
 extern const ubit_t gsm0503_ahs_ic_ubit[4][4];
 extern const sbit_t gsm0503_ahs_ic_sbit[4][4];
 extern const uint8_t gsm0503_tch_hr_interleaving[228][2];
+extern const ubit_t gsm0503_mcs5_usf_precode_table[8][36];
 
 #endif /* _0503_TABLES_H */

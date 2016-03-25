@@ -278,76 +278,376 @@ int pdtch_decode(uint8_t *l2_data, sbit_t *bursts, uint8_t *usf_p,
 	return -1;
 }
 
-int pdtch_encode(ubit_t *bursts, uint8_t *l2_data, uint8_t l2_len)
+static int pdtch_edge_mcs1_demap(sbit_t *bursts, sbit_t *hc, sbit_t *dc)
 {
-	ubit_t iB[456], cB[676];
-	const ubit_t *hl_hn;
-	ubit_t conv[334];
-	int i, j, usf;
+	int i;
+	sbit_t iB[456], q[8];
 
-	switch (l2_len) {
-	case 23:
-		osmo_pbit2ubit_ext(conv, 0, l2_data, 0, 184, 1);
+	for (i=0; i<4; i++)
+		gsm0503_xcch_burst_unmap(&iB[i * 114], &bursts[i * 116],
+					q + i*2, q + i*2 + 1);
 
-		osmo_crc64gen_set_bits(&gsm0503_fire_crc40, conv, 184,
-			conv+184);
+	gsm0503_mcs1_ul_deinterleave(hc, dc, iB);
 
-		osmo_conv_encode(&gsm0503_conv_xcch, conv, cB);
+	return 0;
+}
 
-		hl_hn = gsm0503_pdtch_hl_hn_ubit[0];
+static int pdtch_edge_mcs5_demap(sbit_t *bursts, sbit_t *hc, sbit_t *dc)
+{
+	int i;
+	sbit_t hi[136], di[1248];
 
-		break;
-	case 34:
-		osmo_pbit2ubit_ext(conv, 3, l2_data, 0, 271, 1);
-		usf = l2_data[0] & 0x7;
+	for (i=0; i<4; i++)
+		gsm0503_mcs5_ul_burst_unmap(di, &bursts[i * 348], hi, i);
 
-		osmo_crc16gen_set_bits(&gsm0503_cs234_crc16, conv+3, 271,
-			conv+3+271);
+	gsm0503_mcs5_ul_deinterleave(hc, dc, hi, di);
 
-		memcpy(conv, gsm0503_usf2six[usf], 6);
+	return 0;
+}
 
-		osmo_conv_encode(&gsm0503_conv_cs2, conv, cB);
+static int _pdtch_edge_mcs7_demap(sbit_t *bursts, sbit_t *hi, sbit_t *di)
+{
+	int i;
 
-		for (i=0, j=0; i<588; i++)
-			if (!gsm0503_puncture_cs2[i])
-				cB[j++] = cB[i];
+	for (i=0; i<4; i++)
+		gsm0503_mcs7_ul_burst_unmap(di, &bursts[i * 348], hi, i);
 
-		hl_hn = gsm0503_pdtch_hl_hn_ubit[1];
+	return 0;
+}
 
-		break;
-	case 40:
-		osmo_pbit2ubit_ext(conv, 3, l2_data, 0, 315, 1);
-		usf = l2_data[0] & 0x7;
+static int pdtch_edge_mcs7_demap(sbit_t *bursts, sbit_t *hc,
+				sbit_t *c1, sbit_t *c2)
+{
+	sbit_t hi[124], di[1224];
 
-		osmo_crc16gen_set_bits(&gsm0503_cs234_crc16, conv+3, 315,
-			conv+3+315);
+	_pdtch_edge_mcs7_demap(bursts, hi, di);
+	gsm0503_mcs7_ul_deinterleave(hc, c1, c2, hi, di);
 
-		memcpy(conv, gsm0503_usf2six[usf], 6);
+	return 0;
+}
 
-		osmo_conv_encode(&gsm0503_conv_cs3, conv, cB);
+static int pdtch_edge_mcs8_demap(sbit_t *bursts, sbit_t *hc,
+				sbit_t *c1, sbit_t *c2)
+{
+	sbit_t hi[124], di[1224];
 
-		for (i=0, j=0; i<676; i++)
-			if (!gsm0503_puncture_cs3[i])
-				cB[j++] = cB[i];
+	_pdtch_edge_mcs7_demap(bursts, hi, di);
+	gsm0503_mcs8_ul_deinterleave(hc, c1, c2, hi, di);
 
-		hl_hn = gsm0503_pdtch_hl_hn_ubit[2];
+	return 0;
+}
 
-		break;
-	case 54:
-		osmo_pbit2ubit_ext(cB, 9, l2_data, 0, 431, 1);
-		usf = l2_data[0] & 0x7;
+static int pdtch_edge_mcs1_decode_hdr(sbit_t *hc)
+{
+	sbit_t C[117];
+	ubit_t upp[39];
+	int rc, i, j, n_errors, n_bits_total;
 
-		osmo_crc16gen_set_bits(&gsm0503_cs234_crc16, cB+9, 431,
-			cB+9+431);
-
-		memcpy(cB, gsm0503_usf2twelve_ubit[usf], 12);
-
-		hl_hn = gsm0503_pdtch_hl_hn_ubit[3];
-
-		break;
-	default:
-		return -1;
+	for (i=116, j=79; i>=0; i--) {
+		if (!gsm0503_puncture_mcs1_ul_hdr[i])
+			C[i] = hc[j--];
+		else
+			C[i] = 0;
 	}
+
+	osmo_conv_decode_ber(&gsm0503_conv_mcs1_ul_hdr, C, upp,
+			&n_errors, &n_bits_total);
+	rc = osmo_crc8gen_check_bits(&gsm0503_mcs_crc8_hdr,
+			upp, 31, upp+31);
+	if (rc)
+		return -1;
+
+	return 0;
+}
+
+static int pdtch_edge_mcs5_decode_hdr(sbit_t *hc)
+{
+	ubit_t upp[45];
+	int rc, n_errors, n_bits_total;
+
+	osmo_conv_decode_ber(&gsm0503_conv_mcs5_ul_hdr, hc, upp,
+			&n_errors, &n_bits_total);
+	rc = osmo_crc8gen_check_bits(&gsm0503_mcs_crc8_hdr,
+				upp, 37, upp+37);
+	if (rc)
+		return -1;
+
+	return 0;
+}
+
+static int pdtch_edge_mcs7_decode_hdr(sbit_t *hc)
+{
+	sbit_t C[162];
+	ubit_t upp[54];
+	int rc, i, j, n_errors, n_bits_total;
+
+	for (i=161, j=159; i>=0; i--) {
+		if (!gsm0503_puncture_mcs7_ul_hdr[i])
+			C[i] = hc[j--];
+		else
+			C[i] = 0;
+	}
+
+	osmo_conv_decode_ber(&gsm0503_conv_mcs7_ul_hdr, C, upp,
+			&n_errors, &n_bits_total);
+	rc = osmo_crc8gen_check_bits(&gsm0503_mcs_crc8_hdr,
+			upp, 46, upp+46);
+	if (rc)
+		return -1;
+
+	return 0;
+}
+
+int pdtch_edge_decode(uint8_t *l2_data, sbit_t *bursts, int mcs,
+		      int *n_errors, int *n_bits_total)
+{
+	sbit_t hc[160], dc[1248], C[1836], c1[612], c2[612];
+	ubit_t u[612];
+
+	int rc, i, j;
+
+	switch (mcs) {
+	case 1:
+		pdtch_edge_mcs1_demap(bursts, hc, dc);
+		pdtch_edge_mcs1_decode_hdr(hc);
+
+		for (i=587, j=371; i>=0; i--) {
+			if (!gsm0503_puncture_mcs1_p1[i])
+				C[i] = dc[j--];
+			else
+				C[i] = 0;
+		}
+
+		osmo_conv_decode_ber(&gsm0503_conv_mcs1, C, u,
+				n_errors, n_bits_total);
+		rc = osmo_crc16gen_check_bits(&gsm0503_mcs_crc12,
+				u, 178, u+178);
+		if (rc)
+			return -1;
+
+		osmo_ubit2pbit_ext(l2_data, 0, u, 0, 178, 1);
+		return 27;
+	case 2:
+		pdtch_edge_mcs1_demap(bursts, hc, dc);
+		pdtch_edge_mcs1_decode_hdr(hc);
+
+		for (i=731, j=371; i>=0; i--) {
+			if (!gsm0503_puncture_mcs2_p1[i])
+				dc[i] = dc[j--];
+			else
+				dc[i] = 0;
+		}
+
+		osmo_conv_decode_ber(&gsm0503_conv_mcs2, dc, u,
+				n_errors, n_bits_total);
+		rc = osmo_crc16gen_check_bits(&gsm0503_mcs_crc12,
+				u, 226, u+226);
+		if (rc)
+			return -1;
+
+		osmo_ubit2pbit_ext(l2_data, 0, u, 3, 226, 1);
+		return 33;
+	case 3:
+		pdtch_edge_mcs1_demap(bursts, hc, dc);
+		pdtch_edge_mcs1_decode_hdr(hc);
+
+		for (i=947, j=371; i>=0; i--) {
+			if (!gsm0503_puncture_mcs3_p1[i])
+				dc[i] = dc[j--];
+			else
+				dc[i] = 0;
+		}
+
+		osmo_conv_decode_ber(&gsm0503_conv_mcs3, dc, u,
+				n_errors, n_bits_total);
+		rc = osmo_crc16gen_check_bits(&gsm0503_mcs_crc12,
+				u, 298, u+298);
+		if (rc)
+			return -1;
+
+		osmo_ubit2pbit_ext(l2_data, 0, u, 3, 298, 1);
+		return 42;
+	case 4:
+		pdtch_edge_mcs1_demap(bursts, hc, dc);
+		pdtch_edge_mcs1_decode_hdr(hc);
+
+		for (i=1115, j=371; i>=0; i--) {
+			if (!gsm0503_puncture_mcs4_p1[i])
+				dc[i] = dc[j--];
+			else
+				dc[i] = 0;
+		}
+
+		osmo_conv_decode_ber(&gsm0503_conv_mcs4, dc, u,
+				n_errors, n_bits_total);
+		rc = osmo_crc16gen_check_bits(&gsm0503_mcs_crc12,
+				u, 354, u+354);
+		if (rc)
+			return -1;
+
+		osmo_ubit2pbit_ext(l2_data, 0, u, 3, 354, 1);
+		return 49;
+	case 5:
+		pdtch_edge_mcs5_demap(bursts, hc, dc);
+		pdtch_edge_mcs5_decode_hdr(hc);
+
+		for (i=1403, j=1247; i>=0; i--) {
+			if (!gsm0503_puncture_mcs5_p1[i])
+				dc[i] = dc[j--];
+			else
+				dc[i] = 0;
+		}
+		osmo_conv_decode_ber(&gsm0503_conv_mcs5, dc, u,
+				n_errors, n_bits_total);
+		rc = osmo_crc16gen_check_bits(&gsm0503_mcs_crc12,
+				u, 450, u+450);
+		if (rc)
+			return -1;
+
+		osmo_ubit2pbit_ext(l2_data, 0, u, 3, 450, 1);
+		return 61;
+	case 6:
+		pdtch_edge_mcs5_demap(bursts, hc, dc);
+		pdtch_edge_mcs5_decode_hdr(hc);
+
+		for (i=1835, j=1247; i>=0; i--) {
+			if (!gsm0503_puncture_mcs6_p1[i])
+				dc[i] = dc[j--];
+			else
+				dc[i] = 0;
+		}
+
+		osmo_conv_decode_ber(&gsm0503_conv_mcs6, dc, u,
+				n_errors, n_bits_total);
+		rc = osmo_crc16gen_check_bits(&gsm0503_mcs_crc12,
+				u, 594, u+594);
+		if (rc)
+			return -1;
+
+		osmo_ubit2pbit_ext(l2_data, 0, u, 3, 594, 1);
+		return 79;
+	case 7:
+		pdtch_edge_mcs7_demap(bursts, hc, c1, c2);
+		pdtch_edge_mcs7_decode_hdr(hc);
+
+		/* Block 1 */
+		for (i=1403, j=611; i>=0; i--) {
+			if (!gsm0503_puncture_mcs7_p1[i])
+				c1[i] = c1[j--];
+			else
+				c1[i] = 0;
+		}
+
+		osmo_conv_decode_ber(&gsm0503_conv_mcs7, c1, u,
+				n_errors, n_bits_total);
+		rc = osmo_crc16gen_check_bits(&gsm0503_mcs_crc12,
+				u, 450, u+450);
+		if (rc)
+			return -1;
+
+		/* Block 2 */
+		for (i=1403, j=611; i>=0; i--) {
+			if (!gsm0503_puncture_mcs7_p1[i])
+				c2[i] = c2[j--];
+			else
+				c2[i] = 0;
+		}
+
+		osmo_conv_decode_ber(&gsm0503_conv_mcs7, c2, u,
+				n_errors, n_bits_total);
+		rc = osmo_crc16gen_check_bits(&gsm0503_mcs_crc12,
+				u, 450, u+450);
+		if (rc)
+			return -1;
+
+		osmo_ubit2pbit_ext(l2_data, 0, u, 3, 450 + 450, 1);
+		return 119;
+	case 8:
+		pdtch_edge_mcs8_demap(bursts, hc, c1, c2);
+		pdtch_edge_mcs7_decode_hdr(hc);
+
+		/* Block 1 */
+		for (i=1691, j=611; i>=0; i--) {
+			if (!gsm0503_puncture_mcs8_p1[i])
+				c1[i] = c1[j--];
+			else
+				c1[i] = 0;
+		}
+
+		osmo_conv_decode_ber(&gsm0503_conv_mcs8, c1, u,
+				n_errors, n_bits_total);
+		rc = osmo_crc16gen_check_bits(&gsm0503_mcs_crc12,
+				u, 546, u+546);
+		if (rc)
+			return -1;
+
+		/* Block 2 */
+		for (i=1691, j=611; i>=0; i--) {
+			if (!gsm0503_puncture_mcs8_p1[i])
+				c2[i] = c2[j--];
+			else
+				c2[i] = 0;
+		}
+
+		osmo_conv_decode_ber(&gsm0503_conv_mcs8, c2, u,
+				n_errors, n_bits_total);
+		rc = osmo_crc16gen_check_bits(&gsm0503_mcs_crc12,
+				u, 546, u+546);
+		if (rc)
+			return -1;
+
+		osmo_ubit2pbit_ext(l2_data, 0, u, 3, 546 + 546, 1);
+		return 143;
+	case 9:
+		pdtch_edge_mcs8_demap(bursts, hc, c1, c2);
+		pdtch_edge_mcs7_decode_hdr(hc);
+
+		/* Block 1 */
+		for (i=1835, j=611; i>=0; i--) {
+			if (!gsm0503_puncture_mcs9_p1[i])
+				c1[i] = c1[j--];
+			else
+				c1[i] = 0;
+		}
+
+		osmo_conv_decode_ber(&gsm0503_conv_mcs9, c1, u,
+				n_errors, n_bits_total);
+		rc = osmo_crc16gen_check_bits(&gsm0503_mcs_crc12,
+				u, 594, u+594);
+		if (rc)
+			return -1;
+
+		/* Block 2 */
+		for (i=1835, j=611; i>=0; i--) {
+			if (!gsm0503_puncture_mcs9_p1[i])
+				c2[i] = c2[j--];
+			else
+				c2[i] = 0;
+		}
+
+		osmo_conv_decode_ber(&gsm0503_conv_mcs9, c2, u,
+				n_errors, n_bits_total);
+		rc = osmo_crc16gen_check_bits(&gsm0503_mcs_crc12,
+				u, 594, u+594);
+		if (rc)
+			return -1;
+
+		osmo_ubit2pbit_ext(l2_data, 0, u, 3, 594 + 594, 1);
+		return 155;
+	default:
+		*n_bits_total = 0;
+		*n_errors = 0;
+		break;
+	}
+
+	return -1;
+}
+
+static int pdtch_gprs_interleave(ubit_t *bursts, ubit_t *cB,
+				const ubit_t *hl_hn)
+{
+	int i;
+	ubit_t iB[456];
 
 	gsm0503_xcch_interleave(cB, iB);
 
@@ -358,6 +658,360 @@ int pdtch_encode(ubit_t *bursts, uint8_t *l2_data, uint8_t l2_len)
 	return 0;
 }
 
+static int pdtch_edge_mcs1_interleave(ubit_t *bursts, ubit_t *hc,
+				ubit_t *dc, int usf, const ubit_t *hl_hn)
+{
+	int i;
+	ubit_t iB[456];
+
+	gsm0503_mcs1_dl_interleave(gsm0503_usf2six[usf], hc, dc, iB);
+
+	for (i=0; i<4; i++)
+		gsm0503_xcch_burst_map(&iB[i * 114], &bursts[i * 116],
+			hl_hn + i*2, hl_hn + i*2 + 1);
+
+	return 0;
+}
+
+static int pdtch_edge_mcs5_interleave(ubit_t *bursts, ubit_t *hc,
+					ubit_t *dc, ubit_t *up)
+{
+	int i;
+	ubit_t hi[100], di[1248];
+
+	gsm0503_mcs5_dl_interleave(hc, dc, hi, di);
+	for (i=0; i<4; i++)
+		gsm0503_mcs5_dl_burst_map(di, &bursts[i*348], hi, up, i);
+
+	return 0;
+}
+
+static int pdtch_edge_mcs7_map(ubit_t *bursts, ubit_t *hi,
+				ubit_t *di, ubit_t *up)
+{
+	int i;
+
+	for (i=0; i<4; i++)
+		gsm0503_mcs7_dl_burst_map(di, &bursts[i*348], hi, up, i);
+
+	return 0;
+}
+
+static int pdtch_edge_mcs7_interleave(ubit_t *bursts, ubit_t *hc,
+					ubit_t *c1, ubit_t *c2, ubit_t *up)
+{
+	ubit_t hi[124], di[1224];
+
+	gsm0503_mcs7_dl_interleave(hc, c1, c2, hi, di);
+	pdtch_edge_mcs7_map(bursts, hi, di, up);
+
+	return 0;
+}
+
+static int pdtch_edge_mcs8_interleave(ubit_t *bursts, ubit_t *hc,
+					ubit_t *c1, ubit_t *c2, ubit_t *up)
+{
+	ubit_t hi[124], di[1224];
+
+	gsm0503_mcs8_dl_interleave(hc, c1, c2, hi, di);
+	pdtch_edge_mcs7_map(bursts, hi, di, up);
+
+	return 0;
+}
+
+static void pdtch_mcs5_usf_precode(ubit_t *up, int usf)
+{
+        memcpy(up, gsm0503_mcs5_usf_precode_table[usf], 36 * sizeof(ubit_t));
+}
+
+static int pdtch_edge_mcs1_hdr_encode(ubit_t *hc, uint8_t *l2_data)
+{
+	int i, j;
+	ubit_t upp[36], C[108];
+
+	/* Header */
+	osmo_pbit2ubit_ext(upp, 0, l2_data, 3, 28, 1);
+	osmo_crc8gen_set_bits(&gsm0503_mcs_crc8_hdr, upp, 28, upp+28);
+	osmo_conv_encode(&gsm0503_conv_mcs1_dl_hdr, upp, C);
+
+	for (i=0, j=0; i<108; i++)
+		if (!gsm0503_puncture_mcs1_dl_hdr[i])
+			hc[j++] = C[i];
+	return 0;
+}
+
+static int pdtch_edge_mcs5_hdr_encode(ubit_t *hc, uint8_t *l2_data)
+{
+	int usf;
+	ubit_t up[36], upp[33];
+
+	usf = l2_data[0] & 0x7;
+	pdtch_mcs5_usf_precode(up, usf);
+
+	osmo_pbit2ubit_ext(upp, 0, l2_data, 3, 25, 1);
+	osmo_crc8gen_set_bits(&gsm0503_mcs_crc8_hdr, upp, 25, upp+25);
+	osmo_conv_encode(&gsm0503_conv_mcs5_dl_hdr, upp, hc);
+
+	hc[99] = hc[98];
+
+	return 0;
+}
+
+static int pdtch_edge_mcs7_hdr_encode(ubit_t *hc, uint8_t *l2_data)
+{
+	int i, j, usf;
+	ubit_t up[36], upp[45], C[135];
+
+	usf = l2_data[0] & 0x7;
+	pdtch_mcs5_usf_precode(up, usf);
+
+	osmo_pbit2ubit_ext(upp, 0, l2_data, 3, 37, 1);
+	osmo_crc8gen_set_bits(&gsm0503_mcs_crc8_hdr, upp, 37, upp+37);
+	osmo_conv_encode(&gsm0503_conv_mcs7_dl_hdr, upp, C);
+
+	for (i=0, j=0; i<135; i++)
+		if (!gsm0503_puncture_mcs7_dl_hdr[i])
+			hc[j++] = C[i];
+	return 0;
+}
+
+int pdtch_encode(ubit_t *bursts, uint8_t *l2_data, uint8_t l2_len)
+{
+	ubit_t cB[676];
+	ubit_t up[36], hc[124];
+	ubit_t u[612], C[1836], dc[1248], c1[612], c2[612];
+	const ubit_t *hl_hn;
+	int i, j, usf;
+
+	usf = l2_data[0] & 0x7;
+
+	switch (l2_len) {
+	case 23:
+		/* GPRS CS-1 */
+		osmo_pbit2ubit_ext(C, 0, l2_data, 0, 184, 1);
+
+		osmo_crc64gen_set_bits(&gsm0503_fire_crc40, C, 184, C+184);
+
+		osmo_conv_encode(&gsm0503_conv_xcch, C, cB);
+
+		hl_hn = gsm0503_pdtch_hl_hn_ubit[0];
+		pdtch_gprs_interleave(bursts, cB, hl_hn);
+		break;
+	case 34:
+		/* GPRS CS-2 */
+		osmo_pbit2ubit_ext(C, 3, l2_data, 0, 271, 1);
+
+		osmo_crc16gen_set_bits(&gsm0503_cs234_crc16, C+3, 271, C+3+271);
+
+		memcpy(C, gsm0503_usf2six[usf], 6);
+
+		osmo_conv_encode(&gsm0503_conv_cs2, C, cB);
+
+		for (i=0, j=0; i<588; i++)
+			if (!gsm0503_puncture_cs2[i])
+				cB[j++] = cB[i];
+
+		hl_hn = gsm0503_pdtch_hl_hn_ubit[1];
+		pdtch_gprs_interleave(bursts, cB, hl_hn);
+		break;
+	case 40:
+		/* GPRS CS-3 */
+		osmo_pbit2ubit_ext(C, 3, l2_data, 0, 315, 1);
+
+		osmo_crc16gen_set_bits(&gsm0503_cs234_crc16, C+3, 315, C+3+315);
+
+		memcpy(C, gsm0503_usf2six[usf], 6);
+
+		osmo_conv_encode(&gsm0503_conv_cs3, C, cB);
+
+		for (i=0, j=0; i<676; i++)
+			if (!gsm0503_puncture_cs3[i])
+				cB[j++] = cB[i];
+
+		hl_hn = gsm0503_pdtch_hl_hn_ubit[2];
+		pdtch_gprs_interleave(bursts, cB, hl_hn);
+		break;
+	case 54:
+		/* GPRS CS-4 */
+		osmo_pbit2ubit_ext(cB, 9, l2_data, 0, 431, 1);
+
+		osmo_crc16gen_set_bits(&gsm0503_cs234_crc16, cB+9, 431,
+			cB+9+431);
+
+		memcpy(cB, gsm0503_usf2twelve_ubit[usf], 12);
+
+		hl_hn = gsm0503_pdtch_hl_hn_ubit[3];
+		pdtch_gprs_interleave(bursts, cB, hl_hn);
+		break;
+	case 27:
+		/* EDGE MCS-1 DL */
+		pdtch_edge_mcs1_hdr_encode(hc, l2_data);
+
+		/* Data */
+		osmo_pbit2ubit_ext(u, 0, l2_data, 31, 178, 1);
+		osmo_crc16gen_set_bits(&gsm0503_mcs_crc12, u, 178, u+178);
+		osmo_conv_encode(&gsm0503_conv_mcs1, u, C);
+
+		for (i=0, j=0; i<588; i++)
+			if (!gsm0503_puncture_mcs1_p1[i])
+				dc[j++] = C[i];
+
+		hl_hn = gsm0503_pdtch_hl_hn_ubit[3];
+		pdtch_edge_mcs1_interleave(bursts, hc, dc, usf, hl_hn);
+		break;
+	case 33:
+		/* EDGE MCS-2 DL */
+		pdtch_edge_mcs1_hdr_encode(hc, l2_data);
+
+		osmo_pbit2ubit_ext(u, 0, l2_data, 31, 226, 1);
+		osmo_crc16gen_set_bits(&gsm0503_mcs_crc12, u, 226, u+226);
+		osmo_conv_encode(&gsm0503_conv_mcs2, u, C);
+
+		for (i=0, j=0; i<732; i++)
+			if (!gsm0503_puncture_mcs2_p1[i])
+				dc[j++] = C[i];
+
+		hl_hn = gsm0503_pdtch_hl_hn_ubit[3];
+		pdtch_edge_mcs1_interleave(bursts, hc, dc, usf, hl_hn);
+		break;
+	case 42:
+		/* EDGE MCS-3 DL */
+		pdtch_edge_mcs1_hdr_encode(hc, l2_data);
+
+		osmo_pbit2ubit_ext(u, 0, l2_data, 31, 298, 1);
+		osmo_crc16gen_set_bits(&gsm0503_mcs_crc12, u, 298, u+298);
+		osmo_conv_encode(&gsm0503_conv_mcs3, u, C);
+
+		for (i=0, j=0; i<948; i++)
+			if (!gsm0503_puncture_mcs3_p1[i])
+				dc[j++] = C[i];
+
+		hl_hn = gsm0503_pdtch_hl_hn_ubit[3];
+		pdtch_edge_mcs1_interleave(bursts, hc, dc, usf, hl_hn);
+		break;
+	case 49:
+		/* EDGE MCS-4 DL */
+		pdtch_edge_mcs1_hdr_encode(hc, l2_data);
+
+		for (i=0, j=0; i<108; i++)
+			if (!gsm0503_puncture_mcs1_dl_hdr[i])
+				hc[j++] = C[i];
+
+		osmo_pbit2ubit_ext(u, 0, l2_data, 31, 354, 1);
+		osmo_crc16gen_set_bits(&gsm0503_mcs_crc12, u, 354, u+354);
+		osmo_conv_encode(&gsm0503_conv_mcs4, u, C);
+
+		for (i=0, j=0; i<1116; i++)
+			if (!gsm0503_puncture_mcs4_p1[i])
+				dc[j++] = C[i];
+
+		hl_hn = gsm0503_pdtch_hl_hn_ubit[3];
+		pdtch_edge_mcs1_interleave(bursts, hc, dc, usf, hl_hn);
+		break;
+	case 60:
+		/* EDGE MCS-5 DL bits*/
+		pdtch_edge_mcs5_hdr_encode(hc, l2_data);
+
+		osmo_pbit2ubit_ext(u, 0, l2_data, 28, 450, 1);
+		osmo_crc16gen_set_bits(&gsm0503_mcs_crc12, u, 450, u+450);
+		osmo_conv_encode(&gsm0503_conv_mcs5, u, C);
+
+		for (i=0, j=0; i<1404; i++)
+			if (!gsm0503_puncture_mcs5_p1[i])
+				dc[j++] = C[i];
+
+		pdtch_edge_mcs5_interleave(bursts, hc, dc, up);
+		break;
+	case 78:
+		/* EDGE MCS-6 DL */
+		pdtch_edge_mcs5_hdr_encode(hc, l2_data);
+
+		osmo_pbit2ubit_ext(u, 0, l2_data, 3+25, 594, 1);
+		osmo_crc16gen_set_bits(&gsm0503_mcs_crc12, u, 594, u+594);
+		osmo_conv_encode(&gsm0503_conv_mcs6, u, C);
+
+		for (i=0, j=0; i<1836; i++)
+			if (!gsm0503_puncture_mcs6_p1[i])
+				dc[j++] = C[i];
+
+		pdtch_edge_mcs5_interleave(bursts, hc, dc, up);
+		break;
+	case 118:
+		/* EDGE MCS-7 DL */
+		pdtch_edge_mcs7_hdr_encode(hc, l2_data);
+
+		osmo_pbit2ubit_ext(u, 0, l2_data, 3+37, 450, 1);
+		osmo_crc16gen_set_bits(&gsm0503_mcs_crc12, u, 450, u+450);
+		osmo_conv_encode(&gsm0503_conv_mcs7, u, C);
+
+		for (i=0, j=0; i<1404; i++)
+			if (!gsm0503_puncture_mcs7_p1[i])
+				c1[j++] = C[i];
+
+		osmo_pbit2ubit_ext(u, 0, l2_data, 3+37+450, 450, 1);
+		osmo_crc16gen_set_bits(&gsm0503_mcs_crc12, u, 450, u+450);
+		osmo_conv_encode(&gsm0503_conv_mcs7, u, C);
+
+		for (i=0, j=0; i<1404; i++)
+			if (!gsm0503_puncture_mcs7_p1[i])
+				c2[j++] = C[i];
+
+		pdtch_edge_mcs7_interleave(bursts, hc, c1, c2, up);
+		break;
+	case 142:
+		/* EDGE MCS-8 DL */
+		pdtch_edge_mcs7_hdr_encode(hc, l2_data);
+
+		for (i=0, j=0; i<135; i++)
+			if (!gsm0503_puncture_mcs7_dl_hdr[i])
+				hc[j++] = C[i];
+
+		osmo_pbit2ubit_ext(u, 0, l2_data, 40, 546, 1);
+		osmo_crc16gen_set_bits(&gsm0503_mcs_crc12, u, 546, u+546);
+		osmo_conv_encode(&gsm0503_conv_mcs8, u, C);
+
+		for (i=0, j=0; i<1692; i++)
+			if (!gsm0503_puncture_mcs8_p1[i])
+				c1[j++] = C[i];
+
+		osmo_pbit2ubit_ext(u, 0, l2_data, 40+546, 546, 1);
+		osmo_crc16gen_set_bits(&gsm0503_mcs_crc12, u, 546, u+546);
+		osmo_conv_encode(&gsm0503_conv_mcs8, u, C);
+
+		for (i=0, j=0; i<1692; i++)
+			if (!gsm0503_puncture_mcs8_p1[i])
+				c2[j++] = C[i];
+
+		pdtch_edge_mcs8_interleave(bursts, hc, c1, c2, up);
+		break;
+	case 154:
+		/* EDGE MCS-9 DL */
+		pdtch_edge_mcs7_hdr_encode(hc, l2_data);
+
+		osmo_pbit2ubit_ext(u, 0, l2_data, 40, 594, 1);
+		osmo_crc16gen_set_bits(&gsm0503_mcs_crc12, u, 594, u+594);
+		osmo_conv_encode(&gsm0503_conv_mcs9, u, C);
+
+		for (i=0, j=0; i<1836; i++)
+			if (!gsm0503_puncture_mcs9_p1[i])
+				c1[j++] = C[i];
+
+		osmo_pbit2ubit_ext(u, 0, l2_data, 40+594, 594, 1);
+		osmo_crc16gen_set_bits(&gsm0503_mcs_crc12, u, 594, u+594);
+		osmo_conv_encode(&gsm0503_conv_mcs9, u, C);
+
+		for (i=0, j=0; i<1836; i++)
+			if (!gsm0503_puncture_mcs9_p1[i])
+				c2[j++] = C[i];
+
+		pdtch_edge_mcs8_interleave(bursts, hc, c1, c2, up);
+		break;
+	default:
+		return -1;
+	}
+
+	return 0;
+}
 
 /*
  * GSM TCH/F FR/EFR transcoding
