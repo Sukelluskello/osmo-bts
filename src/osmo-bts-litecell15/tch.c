@@ -100,6 +100,52 @@ void osmo_nibble_shift_left_unal(uint8_t *out, const uint8_t *in,
 #define GSM_HR_BYTES	14	/* TS 101318 Chapter 5.2: 112 bits, no sig */
 #define GSM_EFR_BYTES	31	/* TS 101318 Chapter 5.3: 244 bits + 4bit sig */
 
+void set_payload_size(struct msgb *msg, uint8_t size)
+{
+	GsmL1_Prim_t *l1p;
+	GsmL1_PhDataReq_t *data_req;
+	GsmL1_MsgUnitParam_t *msu_param;
+
+	l1p = msgb_l1prim(msg);
+	data_req = &l1p->u.phDataReq;
+	msu_param = &data_req->msgUnitParam;
+	msu_param->u8Size = size;
+}
+
+void set_payload_type(struct msgb *msg, struct gsm_lchan *lchan)
+{
+	GsmL1_Prim_t *l1p;
+	GsmL1_PhDataReq_t *data_req;
+	GsmL1_MsgUnitParam_t *msu_param;
+	uint8_t *payload_type;
+
+	l1p = msgb_l1prim(msg);
+	data_req = &l1p->u.phDataReq;
+	msu_param = &data_req->msgUnitParam;
+	payload_type = &msu_param->u8Buffer[0];
+
+	switch (lchan->tch_mode) {
+	case GSM48_CMODE_SPEECH_AMR:
+		*payload_type = GsmL1_TchPlType_Amr;
+		break;
+	default:
+		return;
+	}
+}
+
+uint8_t *get_payload_addr(struct msgb *msg)
+{
+	GsmL1_Prim_t *l1p;
+	GsmL1_PhDataReq_t *data_req;
+	GsmL1_MsgUnitParam_t *msu_param;
+
+	l1p = msgb_l1prim(msg);
+	data_req = &l1p->u.phDataReq;
+	msu_param = &data_req->msgUnitParam;
+
+	return &msu_param->u8Buffer[1];
+}
+
 static struct msgb *l1_to_rtppayload_fr(uint8_t *l1_payload, uint8_t payload_len)
 {
 	struct msgb *msg;
@@ -488,29 +534,21 @@ err_payload_match:
 struct msgb *gen_empty_tch_msg(struct gsm_lchan *lchan)
 {
 	struct msgb *msg;
-	GsmL1_Prim_t *l1p;
-	GsmL1_PhDataReq_t *data_req;
-	GsmL1_MsgUnitParam_t *msu_param;
-	uint8_t *payload_type;
 	uint8_t *l1_payload;
 
 	msg = l1p_msgb_alloc();
 	if (!msg)
 		return NULL;
 
-	l1p = msgb_l1prim(msg);
-	data_req = &l1p->u.phDataReq;
-	msu_param = &data_req->msgUnitParam;
-	payload_type = &msu_param->u8Buffer[0];
-	l1_payload = &msu_param->u8Buffer[1];
+	l1_payload = get_payload_addr(msg);
 
 	switch (lchan->tch_mode) {
 	case GSM48_CMODE_SPEECH_AMR:
-		*payload_type = GsmL1_TchPlType_Amr;
+		set_payload_type(msg, lchan);
 		if (lchan->tch.last_sid.len) {
 			memcpy(l1_payload, lchan->tch.last_sid.buf,
 				lchan->tch.last_sid.len);
-			msu_param->u8Size = lchan->tch.last_sid.len+1;
+			set_payload_size(msg, lchan->tch.last_sid.len + 1);
 		} else {
 			/* FIXME: decide if we should send SPEECH_BAD or
 			 * SID_BAD */
@@ -520,7 +558,7 @@ struct msgb *gen_empty_tch_msg(struct gsm_lchan *lchan)
 			msu_param->u8Size = 5 + 3;
 #else
 			/* send an all-zero SID */
-			msu_param->u8Size = 8;
+			set_payload_size(msg, 8);
 #endif
 		}
 		break;
