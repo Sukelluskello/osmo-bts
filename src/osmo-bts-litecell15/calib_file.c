@@ -252,7 +252,24 @@ static int calib_file_send(struct lc15l1_hdl *fl1h,
 
 	rc = calib_verify(fl1h, desc);
 	if ( rc < 0 ) {
-		LOGP(DL1C, LOGL_ERROR, "Verify L1 calibration table %s -> failed (%d)\n", desc->fname, rc);
+		char log_msg[100];
+		struct gsm_failure_evt_rep failure_rep;
+
+		snprintf(log_msg, 100, "Verify L1 calibration table %s -> failed (%d)\n", desc->fname, rc);
+		LOGP(DL1C, LOGL_ERROR, "%s", log_msg);
+
+		if( fl1h->phy_inst->trx ){
+			failure_rep.event_type = NM_EVT_PROC_FAIL;
+			failure_rep.event_serverity = NM_SEVER_CRITICAL;
+			failure_rep.cause_type = NM_PCAUSE_T_MANUF;
+			failure_rep.event_cause = NM_MM_EVT_CRIT_BOOT_FAIL;
+			failure_rep.add_text = (char *)&log_msg;
+
+			fl1h->phy_inst->trx->mo.obj_inst.trx_nr = fl1h->phy_inst->trx->nr;
+
+			oml_tx_failure_event_rep(&fl1h->phy_inst->trx->mo, failure_rep);
+		}
+
 		st->last_file_idx = get_next_calib_file_idx(fl1h, st->last_file_idx);
 
 		if (st->last_file_idx >= 0)
