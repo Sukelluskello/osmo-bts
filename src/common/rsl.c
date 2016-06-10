@@ -1557,9 +1557,17 @@ static int rsl_rx_ipac_XXcx(struct msgb *msg)
 		rc = osmo_rtp_socket_bind(lchan->abis_ip.rtp_socket,
 					  ipstr, -1);
 		if (rc < 0) {
-			LOGP(DRSL, LOGL_ERROR,
-			     "%s IPAC Failed to bind RTP/RTCP sockets\n",
-			     gsm_lchan_name(lchan));
+			snprintf(log_msg, 100, "%s IPAC Failed to bind RTP/RTCP sockets\n", gsm_lchan_name(lchan));
+			LOGP(DRSL, LOGL_ERROR,"%s", log_msg);
+
+			failure_rep.event_type = NM_EVT_COMM_FAIL;
+			failure_rep.event_serverity = NM_SEVER_CRITICAL;
+			failure_rep.cause_type = NM_PCAUSE_T_MANUF;
+			failure_rep.event_cause = NM_MM_EVT_CRIT_RTP_TOUT;
+			failure_rep.add_text = (char *)&log_msg;
+
+			oml_tx_failure_event_rep(&lchan->ts->trx->mo, failure_rep);
+
 			osmo_rtp_socket_free(lchan->abis_ip.rtp_socket);
 			lchan->abis_ip.rtp_socket = NULL;
 			msgb_queue_flush(&lchan->dl_tch_queue);
