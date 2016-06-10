@@ -554,6 +554,8 @@ int bts_model_l1sap_down(struct gsm_bts_trx *trx, struct osmo_phsap_prim *l1sap)
 {
 	struct msgb *msg = l1sap->oph.msg;
 	int rc = 0;
+	char log_msg[100];
+	struct gsm_failure_evt_rep failure_rep;
 
 	switch (OSMO_PRIM_HDR(&l1sap->oph)) {
 	case OSMO_PRIM(PRIM_PH_DATA, PRIM_OP_REQUEST):
@@ -566,8 +568,16 @@ int bts_model_l1sap_down(struct gsm_bts_trx *trx, struct osmo_phsap_prim *l1sap)
 		rc = mph_info_req(trx, msg, l1sap);
 		break;
 	default:
-		LOGP(DL1C, LOGL_NOTICE, "unknown prim %d op %d\n",
-			l1sap->oph.primitive, l1sap->oph.operation);
+		snprintf(log_msg, 100, "unknown prim %d op %d\n",
+				l1sap->oph.primitive, l1sap->oph.operation);
+		LOGP(DL1C, LOGL_NOTICE,"%s", log_msg);
+
+		failure_rep.event_type = NM_EVT_COMM_FAIL;
+		failure_rep.event_serverity = NM_SEVER_MAJOR;
+		failure_rep.cause_type = NM_PCAUSE_T_MANUF;
+		failure_rep.event_cause = NM_MM_EVT_MAJ_UKWN_MSG;
+		failure_rep.add_text = (char *)&log_msg;
+		oml_tx_failure_event_rep(&trx->mo, failure_rep);
 		rc = -EINVAL;
 	}
 
