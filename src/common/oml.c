@@ -1054,8 +1054,25 @@ static int down_fom(struct gsm_bts *bts, struct msgb *msg)
 		ret = oml_ipa_set_attr(bts, msg);
 		break;
 	default:
-		LOGP(DOML, LOGL_INFO, "unknown Formatted O&M msg_type 0x%02x\n",
-			foh->msg_type);
+		snprintf(log_msg, 100, "unknown Formatted O&M msg_type 0x%02x\n", foh->msg_type);
+		LOGP(DOML, LOGL_INFO,"%s", log_msg);
+
+		failure_rep.event_type = NM_EVT_COMM_FAIL;
+		failure_rep.event_serverity = NM_SEVER_MAJOR;
+		failure_rep.cause_type = NM_PCAUSE_T_MANUF;
+		failure_rep.event_cause = NM_MM_EVT_MAJ_UKWN_MSG;
+		failure_rep.add_text = (char *)&log_msg;
+
+		trx = gsm_bts_trx_num(bts, foh->obj_inst.trx_nr);
+		if (trx) {
+			trx->mo.obj_inst.bts_nr = 0;
+			trx->mo.obj_inst.trx_nr = foh->obj_inst.trx_nr;
+			trx->mo.obj_inst.ts_nr = 0xff;
+			oml_tx_failure_event_rep(&trx->mo, failure_rep);
+		} else {
+			oml_tx_failure_event_rep(&bts->mo, failure_rep);
+		}
+
 		ret = oml_fom_ack_nack(msg, NM_NACK_MSGTYPE_INVAL);
 	}
 
