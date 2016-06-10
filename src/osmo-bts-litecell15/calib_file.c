@@ -321,11 +321,26 @@ int calib_load(struct lc15l1_hdl *fl1h)
 	int rc;
 	struct calib_send_state *st = &fl1h->st;
 	char *calib_path = fl1h->phy_inst->u.lc15.calib_path;
+	char log_msg[100];
+	struct gsm_failure_evt_rep failure_rep;
 
-        if (!calib_path) {
-                LOGP(DL1C, LOGL_ERROR, "Calibration file path not specified\n");
-                return -1;
-        }
+	if (!calib_path) {
+		snprintf(log_msg, 100, "Calibration file path not specified\n");
+		LOGP(DL1C, LOGL_ERROR, "%s", log_msg);
+
+		if( fl1h->phy_inst->trx ){
+			failure_rep.event_type = NM_EVT_PROC_FAIL;
+			failure_rep.event_serverity = NM_SEVER_CRITICAL;
+			failure_rep.cause_type = NM_PCAUSE_T_MANUF;
+			failure_rep.event_cause = 0x0401;
+			failure_rep.add_text = (char *)&log_msg;
+
+			fl1h->phy_inst->trx->mo.obj_inst.trx_nr = fl1h->phy_inst->trx->nr;
+
+			oml_tx_failure_event_rep(&fl1h->phy_inst->trx->mo, failure_rep);
+		}
+		return -1;
+	}
 
 	rc = get_next_calib_file_idx(fl1h, -1);
 	if (rc < 0) {
