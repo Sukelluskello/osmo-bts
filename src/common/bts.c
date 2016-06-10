@@ -44,6 +44,7 @@
 #include <osmo-bts/rsl.h>
 #include <osmo-bts/oml.h>
 #include <osmo-bts/signal.h>
+#include "osmo-bts/oml.h"
 
 #define MIN_QUAL_RACH    5.0f   /* at least  5 dB C/I */
 #define MIN_QUAL_NORM   -0.5f   /* at least -1 dB C/I */
@@ -250,6 +251,9 @@ int bts_link_estab(struct gsm_bts *bts)
 int trx_link_estab(struct gsm_bts_trx *trx)
 {
 	struct e1inp_sign_link *link = trx->rsl_link;
+	int rc;
+	char log_msg[100];
+	struct gsm_failure_evt_rep failure_rep;
 	uint8_t radio_state = link ?  NM_OPSTATE_ENABLED : NM_OPSTATE_DISABLED;
 
 	LOGP(DSUM, LOGL_INFO, "RSL link (TRX %02x) state changed to %s, sending Status'.\n",
@@ -258,11 +262,26 @@ int trx_link_estab(struct gsm_bts_trx *trx)
 	oml_mo_state_chg(&trx->mo, radio_state, NM_AVSTATE_OK);
 
 	if (link)
-		rsl_tx_rf_res(trx);
+		rc = rsl_tx_rf_res(trx);
 	else
-		bts_model_trx_deact_rf(trx);
+		rc = bts_model_trx_deact_rf(trx);
 
-	return 0;
+	if(rc < 0) {
+		if(link)
+			snprintf(log_msg, 100, "Failed to establish RSL link (%d)\n", rc);
+		else
+			snprintf(log_msg, 100, "Failed to deactivate RF (%d)\n", rc);
+
+		failure_rep.event_type = NM_EVT_PROC_FAIL;
+		failure_rep.event_serverity = NM_SEVER_CRITICAL;
+		failure_rep.cause_type = NM_PCAUSE_T_MANUF;
+		failure_rep.event_cause = NM_MM_EVT_MAJ_RSL_FAIL;
+		failure_rep.add_text = (char *)&log_msg;
+
+		oml_tx_failure_event_rep(&trx->mo, failure_rep);
+	}
+
+	return rc;
 }
 
 /* set the availability of the TRX (used by PHY driver) */
