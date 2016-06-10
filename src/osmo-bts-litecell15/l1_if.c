@@ -75,6 +75,7 @@ struct wait_l1_conf {
 	struct osmo_timer_list timer;	/* timer for L1 timeout */
 	unsigned int conf_prim_id;	/* primitive we expect in response */
 	unsigned int is_sys_prim;	/* is this a system (1) or L1 (0) primitive */
+	struct lc15l1_hdl *fl1h;
 	l1if_compl_cb *cb;
 	void *cb_data;
 };
@@ -88,14 +89,43 @@ static void release_wlc(struct wait_l1_conf *wlc)
 static void l1if_req_timeout(void *data)
 {
 	struct wait_l1_conf *wlc = data;
+	struct lc15l1_hdl *fl1h = wlc->fl1h;
+	char log_msg[100];
+	struct gsm_failure_evt_rep failure_rep;
+	int rc;
 
-	if (wlc->is_sys_prim)
-		LOGP(DL1C, LOGL_FATAL, "Timeout waiting for SYS primitive %s\n",
-			get_value_string(lc15bts_sysprim_names, wlc->conf_prim_id));
-	else
-		LOGP(DL1C, LOGL_FATAL, "Timeout waiting for L1 primitive %s\n",
-			get_value_string(lc15bts_l1prim_names, wlc->conf_prim_id));
-	exit(23);
+	if(fl1h->failure_rep_sent)
+		exit(23);
+
+	if (wlc->is_sys_prim) {
+		snprintf(log_msg, 100, "Timeout waiting for SYS primitive %s\n",
+				get_value_string(lc15bts_sysprim_names, wlc->conf_prim_id));
+
+	} else {
+		snprintf(log_msg, 100, "Timeout waiting for L1 primitive %s\n",
+				get_value_string(lc15bts_l1prim_names, wlc->conf_prim_id));
+	}
+
+	LOGP(DL1C, LOGL_FATAL, "%s", log_msg);
+
+	if( fl1h->phy_inst->trx ){
+		failure_rep.event_type = NM_EVT_PROC_FAIL;
+		failure_rep.event_serverity = NM_SEVER_CRITICAL;
+		failure_rep.cause_type = NM_PCAUSE_T_MANUF;
+		failure_rep.event_cause = NM_MM_EVT_CRIT_SW_FATAL;
+		failure_rep.add_text = (char *)&log_msg;
+
+		fl1h->phy_inst->trx->mo.obj_inst.trx_nr = fl1h->phy_inst->trx->nr;
+
+		rc = oml_tx_failure_event_rep(&fl1h->phy_inst->trx->mo, failure_rep);
+
+		if(!rc)
+			fl1h->failure_rep_sent = 1;
+
+	}
+
+	osmo_timer_schedule(&wlc->timer, 1, 0);
+
 }
 
 static int _l1if_req_compl(struct lc15l1_hdl *fl1h, struct msgb *msg,
@@ -155,6 +185,7 @@ static int _l1if_req_compl(struct lc15l1_hdl *fl1h, struct msgb *msg,
 	llist_add(&wlc->list, &fl1h->wlc_list);
 
 	/* schedule a timer for timeout_secs seconds. If DSP fails to respond, we terminate */
+	wlc->fl1h = fl1h;
 	wlc->timer.data = wlc;
 	wlc->timer.cb = l1if_req_timeout;
 	osmo_timer_schedule(&wlc->timer, timeout_secs, 0);
