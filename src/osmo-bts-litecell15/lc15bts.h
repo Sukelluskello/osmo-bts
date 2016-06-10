@@ -87,6 +87,7 @@ const uint8_t pdch_msu_size[_NUM_PDCH_CS];
 #define GSM_BTS_DIVERSITY_MODE_DEFAULT	2	/* MRC is default mode */
 #define GSM_BTS_PEDESTAL_MODE_DEFAULT	0	/* Unused TS is off by default */
 #define GSM_BTS_LED_CTRL_MODE_DEFAULT	0	/* LED is controlled by BTS by default */
+#define GSM_BTS_PWR_RED_STEP_DEFAULT	2	/* Default Tx power reduction step is 2 dB */
 #define GSM_BTS_TX_PWR_ADJ_DEFAULT	0	/* Default Tx power auto adjustment is none */
 #define GSM_BTS_TX_RED_PWR_8PSK_DEFAULT	0	/* Default 8-PSK maximum power level is 0 dB */
 

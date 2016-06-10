@@ -428,6 +428,26 @@ DEFUN(cfg_bts_led_mode, cfg_bts_led_mode_cmd,
 	return CMD_SUCCESS;
 }
 
+DEFUN(cfg_bts_pwr_red_step, cfg_bts_pwr_red_step_cmd,
+       "pwr-red-step <1-2>",
+       "Set the transmit output power reduction step in dB\n"
+       "Power reduction step in dB\n")
+{
+	struct gsm_bts *bts = vty->index;
+	struct gsm_bts_role_bts *btsb = bts_role_bts(bts);
+	uint8_t pwr_red_step = (uint8_t)atoi(argv[0]);
+
+	if (( pwr_red_step >  2 ) ||  ( pwr_red_step < 1 )) {
+		vty_out(vty, "Tx power reduction step must be either 1 or 2 dB (%d) %s",
+				pwr_red_step, VTY_NEWLINE);
+		return CMD_WARNING;
+	}
+
+	btsb->pwr_red_step = pwr_red_step;
+
+	return CMD_SUCCESS;
+}
+
 DEFUN(cfg_bts_auto_tx_pwr_adj, cfg_bts_auto_tx_pwr_adj_cmd,
 	"pwr-adj-mode (none|auto)",
 	"Set output power adjustment mode\n")
@@ -484,6 +504,10 @@ void bts_model_config_write_bts(struct vty *vty, struct gsm_bts *bts)
 
 	vty_out(vty, " tx-red-pwr-8psk %d%s",
 			btsb->tx_pwr_red_8psk, VTY_NEWLINE);
+
+	vty_out(vty, " pwr-red-step %d%s",
+			btsb->pwr_red_step, VTY_NEWLINE);
+
 
 }
 
@@ -571,6 +595,7 @@ int bts_model_vty_init(struct gsm_bts *bts)
 	install_element(BTS_NODE, &cfg_bts_pedestal_mode_cmd);
 	install_element(BTS_NODE, &cfg_bts_led_mode_cmd);
 	install_element(BTS_NODE, &cfg_bts_max_cell_size_cmd);
+	install_element(BTS_NODE, &cfg_bts_pwr_red_step_cmd);
 	install_element(BTS_NODE, &cfg_bts_auto_tx_pwr_adj_cmd);
 	install_element(BTS_NODE, &cfg_bts_tx_red_pwr_8psk_cmd);
 

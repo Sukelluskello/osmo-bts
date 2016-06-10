@@ -637,9 +637,20 @@ static int oml_rx_set_radio_attr(struct gsm_bts_trx *trx, struct msgb *msg)
 
 	/* 9.4.47 RF Max Power Reduction */
 	if (TLVP_PRESENT(&tp, NM_ATT_RF_MAXPOWR_R)) {
+#ifdef ENABLE_LC15BTS
+		struct gsm_bts_role_bts *btsb = bts_role_bts(trx->bts);
+		if( btsb->pwr_red_step == 2)
+			trx->max_power_red = *TLVP_VAL(&tp, NM_ATT_RF_MAXPOWR_R) * 2;
+		else
+			trx->max_power_red = *TLVP_VAL(&tp, NM_ATT_RF_MAXPOWR_R);
+
+		LOGP(DOML, LOGL_INFO, "Set RF Max Power Reduction=%d dB, step=%d dB\n",
+				trx->max_power_red, btsb->pwr_red_step);
+#else
 		trx->max_power_red = *TLVP_VAL(&tp, NM_ATT_RF_MAXPOWR_R) * 2;
-		LOGP(DOML, LOGL_INFO, "Set RF Max Power Reduction = %d dBm\n",
-		     trx->max_power_red);
+		LOGP(DOML, LOGL_INFO, "Set RF Max Power Reduction = %d dB\n",
+				trx->max_power_red);
+#endif
 	}
 	/* 9.4.5 ARFCN List */
 #if 0

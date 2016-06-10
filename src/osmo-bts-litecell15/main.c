@@ -77,6 +77,7 @@ int bts_model_init(struct gsm_bts *bts)
 	btsb->led_ctrl_mode = GSM_BTS_LED_CTRL_MODE_DEFAULT;
 	btsb->diversity_mode = GSM_BTS_DIVERSITY_MODE_DEFAULT;
 	btsb->pedestal_mode = GSM_BTS_PEDESTAL_MODE_DEFAULT;
+	btsb->pwr_red_step = GSM_BTS_PWR_RED_STEP_DEFAULT;
 	btsb->tx_pwr_adj_mode = GSM_BTS_TX_PWR_ADJ_DEFAULT;
 	btsb->tx_pwr_red_8psk = GSM_BTS_TX_RED_PWR_8PSK_DEFAULT;
 
