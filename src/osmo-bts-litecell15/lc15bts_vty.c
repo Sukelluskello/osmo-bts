@@ -448,6 +448,24 @@ DEFUN(cfg_bts_pwr_red_step, cfg_bts_pwr_red_step_cmd,
 	return CMD_SUCCESS;
 }
 
+DEFUN(cfg_bts_dsp_alive_timer, cfg_bts_dsp_alive_timer_cmd,
+	"dsp-alive-period <0-60>",
+	"Set DSP alive timer period in second\n")
+{
+	struct gsm_bts *bts = vty->index;;
+	struct gsm_bts_role_bts *btsb = bts_role_bts(bts);
+	uint8_t period = (uint8_t)atoi(argv[0]);
+
+	if (( period >  60 ) || ( period < 0 )) {
+		vty_out(vty, "DSP heart beat alive timer period must be between 0 and 60 seconds (%d) %s",
+				period, VTY_NEWLINE);
+		return CMD_WARNING;
+	}
+
+	btsb->dsp_alive_period = period;
+	return CMD_SUCCESS;
+}
+
 DEFUN(cfg_bts_auto_tx_pwr_adj, cfg_bts_auto_tx_pwr_adj_cmd,
 	"pwr-adj-mode (none|auto)",
 	"Set output power adjustment mode\n")
@@ -498,6 +516,9 @@ void bts_model_config_write_bts(struct vty *vty, struct gsm_bts *bts)
 
 	vty_out(vty, " led-control-mode %s%s",
 			get_value_string(lc15_led_mode_strs, btsb->led_ctrl_mode), VTY_NEWLINE);
+
+	vty_out(vty, " dsp-alive-period %d%s",
+			btsb->dsp_alive_period, VTY_NEWLINE);
 
 	vty_out(vty, " pwr-adj-mode %s%s",
 			get_value_string(lc15_auto_adj_pwr_strs, btsb->tx_pwr_adj_mode), VTY_NEWLINE);
@@ -596,6 +617,7 @@ int bts_model_vty_init(struct gsm_bts *bts)
 	install_element(BTS_NODE, &cfg_bts_led_mode_cmd);
 	install_element(BTS_NODE, &cfg_bts_max_cell_size_cmd);
 	install_element(BTS_NODE, &cfg_bts_pwr_red_step_cmd);
+	install_element(BTS_NODE, &cfg_bts_dsp_alive_timer_cmd);
 	install_element(BTS_NODE, &cfg_bts_auto_tx_pwr_adj_cmd);
 	install_element(BTS_NODE, &cfg_bts_tx_red_pwr_8psk_cmd);
 

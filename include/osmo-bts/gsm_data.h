@@ -118,6 +118,7 @@ struct gsm_bts_role_bts {
 	uint8_t pedestal_mode;		/* 0: unused TS is OFF, 1: unused TS is in minimum Tx power */
 	uint8_t led_ctrl_mode;		/* 0: control by BTS, 1: not control by BTS */
 	uint8_t pwr_red_step;   	/* Tx power reduction steps in 1 dB or 2 dB */
+	uint8_t dsp_alive_period;	/* DSP alive timer period  */
 	uint8_t tx_pwr_adj_mode;	/* 0: no auto adjust power, 1: auto adjust power using RMS detector */
 	uint8_t tx_pwr_red_8psk;	/* 8-PSK maximum Tx power reduction level in dB */
 #endif

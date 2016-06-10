@@ -59,6 +59,13 @@ struct lc15l1_hdl {
 	struct calib_send_state st;
 
 	uint8_t last_rf_mute[8];
+
+	struct {
+		struct osmo_timer_list dsp_alive_timer;
+		unsigned int dsp_alive_cnt;
+		uint8_t dsp_alive_period;
+	} hw_alive;
+	uint8_t failure_rep_sent; /* Flag to indicate the failure report has already sent to network before stop BTS itself*/
 };
 
 #define msgb_l1prim(msg)	((GsmL1_Prim_t *)(msg)->l1h)

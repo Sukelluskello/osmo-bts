@@ -66,6 +66,7 @@
 #include "misc/lc15bts_par.h"
 #include "misc/lc15bts_bid.h"
 #include "utils.h"
+#include "osmo-bts/oml.h"
 
 extern unsigned int dsp_trace;
 
@@ -1398,6 +1399,73 @@ int l1if_close(struct lc15l1_hdl *fl1h)
 	return 0;
 }
 
+static void dsp_alive_compl_cb(struct gsm_bts_trx *trx, struct msgb *resp, void *data)
+{
+	Litecell15_Prim_t *sysp = msgb_sysprim(resp);
+	Litecell15_IsAliveCnf_t *sac = &sysp->u.IsAliveCnf;
+	struct lc15l1_hdl *fl1h = trx_lc15l1_hdl(trx);
+
+	fl1h->hw_alive.dsp_alive_cnt++;
+	fl1h->failure_rep_sent = 0;
+	LOGP(DL1C, LOGL_NOTICE, "Rx SYS prim %s, status=%d (%d)\n",
+			get_value_string(lc15bts_sysprim_names, sysp->id), sac->status, trx->nr);
+
+	msgb_free(resp);
+}
+
+static int dsp_alive_timer_cb(void *data)
+{
+	struct lc15l1_hdl *fl1h = data;
+	struct gsm_bts_trx *trx = fl1h->phy_inst->trx;
+	struct msgb *msg = sysp_msgb_alloc();
+	int rc;
+	char log_msg[100];
+	struct gsm_failure_evt_rep failure_rep;
+
+	Litecell15_Prim_t *sys_prim =  msgb_sysprim(msg);
+	sys_prim->id = Litecell15_PrimId_IsAliveReq;
+
+	if (fl1h->hw_alive.dsp_alive_cnt == 0) {
+
+		if(fl1h->failure_rep_sent)
+			exit(23);
+
+		snprintf(log_msg, 100, "Timeout waiting for SYS prim %s primitive (%d)\n",
+				get_value_string(lc15bts_sysprim_names, sys_prim->id + 1), trx->nr);
+
+		LOGP(DL1C, LOGL_ERROR,"%s", log_msg);
+
+		if( fl1h->phy_inst->trx ){
+			failure_rep.event_type = NM_EVT_PROC_FAIL;
+			failure_rep.event_serverity = NM_SEVER_CRITICAL;
+			failure_rep.cause_type = NM_PCAUSE_T_MANUF;
+			failure_rep.event_cause = NM_MM_EVT_CRIT_SW_FATAL;
+			failure_rep.add_text = (char *)&log_msg;
+
+			fl1h->phy_inst->trx->mo.obj_inst.trx_nr = fl1h->phy_inst->trx->nr;
+
+			rc = oml_tx_failure_event_rep(&fl1h->phy_inst->trx->mo, failure_rep);
+			if(!rc)
+				fl1h->failure_rep_sent = 1;
+		}
+	}
+
+	LOGP(DL1C, LOGL_NOTICE, "Tx SYS prim %s (%d)\n",
+			get_value_string(lc15bts_sysprim_names, sys_prim->id), trx->nr);
+
+	rc = l1if_req_compl(fl1h, msg, dsp_alive_compl_cb, NULL);
+	if (rc < 0) {
+		LOGP(DL1C, LOGL_FATAL, "Failed to send %s primitive\n", get_value_string(lc15bts_sysprim_names, sys_prim->id));
+		return -EIO;
+	}
+
+	/* restart timer */
+	fl1h->hw_alive.dsp_alive_cnt = 0;
+	osmo_timer_schedule(&fl1h->hw_alive.dsp_alive_timer, fl1h->hw_alive.dsp_alive_period, 0);
+
+	return 0;
+}
+
 int bts_model_phy_link_open(struct phy_link *plink)
 {
 	struct phy_instance *pinst = phy_instance_by_num(plink, 0);
@@ -1425,6 +1493,26 @@ int bts_model_phy_link_open(struct phy_link *plink)
 
 	phy_link_state_set(plink, PHY_LINK_CONNECTED);
 
+	/* Send first IS_ALIVE primitive */
+	struct msgb *msg = sysp_msgb_alloc();
+	int rc;
+
+	Litecell15_Prim_t *sys_prim =  msgb_sysprim(msg);
+	sys_prim->id = Litecell15_PrimId_IsAliveReq;
+
+	rc = l1if_req_compl(fl1h, msg, dsp_alive_compl_cb, NULL);
+	if (rc < 0) {
+		LOGP(DL1C, LOGL_FATAL, "Failed to send %s primitive\n", get_value_string(lc15bts_sysprim_names, sys_prim->id));
+		return -EIO;
+	}
+
+	/* initialize DSP heart beat alive timer */
+	struct gsm_bts_role_bts *btsb = bts_role_bts(pinst->trx->bts);
+	fl1h->hw_alive.dsp_alive_timer.cb = dsp_alive_timer_cb;
+	fl1h->hw_alive.dsp_alive_timer.data = fl1h;
+	fl1h->hw_alive.dsp_alive_cnt = 0;
+	fl1h->hw_alive.dsp_alive_period = btsb->dsp_alive_period;
+	osmo_timer_schedule(&fl1h->hw_alive.dsp_alive_timer, fl1h->hw_alive.dsp_alive_period, 0);
 	return 0;
 }
 
