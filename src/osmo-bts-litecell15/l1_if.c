@@ -1046,6 +1046,8 @@ static int activate_rf_compl_cb(struct gsm_bts_trx *trx, struct msgb *resp,
 	GsmL1_Status_t status;
 	int on = 0;
 	unsigned int i;
+	struct gsm_bts *bts = trx->bts;
+	struct gsm_bts_role_bts *btsb = bts_role_bts(bts);
 
 	if (sysp->id == Litecell15_PrimId_ActivateRfCnf)
 		on = 1;
@@ -1064,8 +1066,10 @@ static int activate_rf_compl_cb(struct gsm_bts_trx *trx, struct msgb *resp,
 			LOGP(DL1C, LOGL_FATAL, "RF-ACT.conf with status %s\n",
 				get_value_string(lc15bts_l1status_names, status));
 			bts_shutdown(trx->bts, "RF-ACT failure");
-		} else
-			bts_update_status(BTS_STATUS_RF_ACTIVE, 1);
+		} else {
+			if(btsb->led_ctrl_mode == LC15_LED_CONTROL_BTS)
+				bts_update_status(BTS_STATUS_RF_ACTIVE, 1);
+		}
 
 		/* signal availability */
 		oml_mo_state_chg(&trx->mo, NM_OPSTATE_DISABLED, NM_AVSTATE_OK);
@@ -1076,8 +1080,8 @@ static int activate_rf_compl_cb(struct gsm_bts_trx *trx, struct msgb *resp,
 		for (i = 0; i < ARRAY_SIZE(trx->ts); i++)
 			oml_mo_state_chg(&trx->ts[i].mo, NM_OPSTATE_DISABLED, NM_AVSTATE_DEPENDENCY);
 	} else {
-		bts_update_status(BTS_STATUS_RF_ACTIVE, 0);
-
+		if(btsb->led_ctrl_mode == LC15_LED_CONTROL_BTS)
+			bts_update_status(BTS_STATUS_RF_ACTIVE, 0);
 		oml_mo_state_chg(&trx->mo, NM_OPSTATE_DISABLED, NM_AVSTATE_OFF_LINE);
 		oml_mo_state_chg(&trx->bb_transc.mo, NM_OPSTATE_DISABLED, NM_AVSTATE_OFF_LINE);
 	}
@@ -1162,10 +1166,13 @@ static int mute_rf_compl_cb(struct gsm_bts_trx *trx, struct msgb *resp,
 		oml_mo_rf_lock_chg(&trx->mo, fl1h->last_rf_mute, 0);
 	} else {
 		int i;
+		struct gsm_bts *bts = trx->bts;
+		struct gsm_bts_role_bts *btsb = bts_role_bts(bts);
 
 		LOGP(DL1C, LOGL_INFO, "Rx RF-MUTE.conf with status=%s\n",
 		     get_value_string(lc15bts_l1status_names, status));
-		bts_update_status(BTS_STATUS_RF_MUTE, fl1h->last_rf_mute[0]);
+		if(btsb->led_ctrl_mode == LC15_LED_CONTROL_BTS)
+			bts_update_status(BTS_STATUS_RF_MUTE, fl1h->last_rf_mute[0]);
 		oml_mo_rf_lock_chg(&trx->mo, fl1h->last_rf_mute, 1);
 
 		osmo_static_assert(

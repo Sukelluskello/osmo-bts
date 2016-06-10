@@ -78,6 +78,12 @@ static const struct value_string lc15_pedestal_mode_strs[] = {
 	{ 0, NULL }
 };
 
+static const struct value_string lc15_led_mode_strs[] = {
+	{ LC15_LED_CONTROL_BTS, "bts" },
+	{ LC15_LED_CONTROL_EXT, "external" },
+	{ 0, NULL }
+};
+
 static const struct value_string lc15_auto_adj_pwr_strs[] = {
 	{ LC15_TX_PWR_ADJ_NONE, "none" },
 	{ LC15_TX_PWR_ADJ_AUTO, "auto" },
@@ -404,6 +410,24 @@ DEFUN(cfg_bts_pedestal_mode, cfg_bts_pedestal_mode_cmd,
 	return CMD_SUCCESS;
 }
 
+DEFUN(cfg_bts_led_mode, cfg_bts_led_mode_cmd,
+		"led-control-mode (bts|external)",
+		"Set LED controlled by BTS or external software\n"
+		"LED can be controlled by (bts, external)\n")
+{
+	struct gsm_bts *bts = vty->index;
+	struct gsm_bts_role_bts *btsb = bts_role_bts(bts);
+	int val = get_string_value(lc15_led_mode_strs, argv[0]);
+
+	if((val < LC15_LED_CONTROL_BTS)  || (val > LC15_LED_CONTROL_EXT)) {
+			vty_out(vty, "Invalid LED control mode %d%s", val, VTY_NEWLINE);
+			return CMD_WARNING;
+	}
+
+	btsb->led_ctrl_mode = (uint8_t)val;
+	return CMD_SUCCESS;
+}
+
 DEFUN(cfg_bts_auto_tx_pwr_adj, cfg_bts_auto_tx_pwr_adj_cmd,
 	"pwr-adj-mode (none|auto)",
 	"Set output power adjustment mode\n")
@@ -451,6 +475,9 @@ void bts_model_config_write_bts(struct vty *vty, struct gsm_bts *bts)
 
 	vty_out(vty, " pedestal-mode %s%s",
 			get_value_string(lc15_pedestal_mode_strs, btsb->pedestal_mode) , VTY_NEWLINE);
+
+	vty_out(vty, " led-control-mode %s%s",
+			get_value_string(lc15_led_mode_strs, btsb->led_ctrl_mode), VTY_NEWLINE);
 
 	vty_out(vty, " pwr-adj-mode %s%s",
 			get_value_string(lc15_auto_adj_pwr_strs, btsb->tx_pwr_adj_mode), VTY_NEWLINE);
@@ -542,6 +569,7 @@ int bts_model_vty_init(struct gsm_bts *bts)
 	install_element(BTS_NODE, &cfg_bts_no_auto_band_cmd);
 	install_element(BTS_NODE, &cfg_bts_diversity_mode_cmd);
 	install_element(BTS_NODE, &cfg_bts_pedestal_mode_cmd);
+	install_element(BTS_NODE, &cfg_bts_led_mode_cmd);
 	install_element(BTS_NODE, &cfg_bts_max_cell_size_cmd);
 	install_element(BTS_NODE, &cfg_bts_auto_tx_pwr_adj_cmd);
 	install_element(BTS_NODE, &cfg_bts_tx_red_pwr_8psk_cmd);

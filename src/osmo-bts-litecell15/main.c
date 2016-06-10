@@ -74,6 +74,7 @@ int bts_model_init(struct gsm_bts *bts)
 	btsb->support.ciphers = CIPHER_A5(1) | CIPHER_A5(2) | CIPHER_A5(3);
 	/* specific default values for LC15 platform */
 	btsb->max_cell_size = GSM_BTS_MAX_CELL_SIZE_DEFAULT;
+	btsb->led_ctrl_mode = GSM_BTS_LED_CTRL_MODE_DEFAULT;
 	btsb->diversity_mode = GSM_BTS_DIVERSITY_MODE_DEFAULT;
 	btsb->pedestal_mode = GSM_BTS_PEDESTAL_MODE_DEFAULT;
 	btsb->tx_pwr_adj_mode = GSM_BTS_TX_PWR_ADJ_DEFAULT;
