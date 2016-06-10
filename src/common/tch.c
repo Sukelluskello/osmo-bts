@@ -20,11 +20,33 @@
  */
 
 #include <osmo-bts/gsm_data.h>
+#include <osmo-bts/logging.h>
+#include <osmo-bts/l1sap.h>
 
 extern struct msgb *l1p_msgb_alloc(void);
 extern uint8_t *get_payload_addr(struct msgb *msg);
 extern void set_payload_type(struct msgb *msg, struct gsm_lchan *lchan);
 extern void set_payload_size(struct msgb *msg, uint8_t size);
+
+int add_l1sap_header(struct gsm_lchan *lchan, struct msgb *rmsg,
+		     struct gsm_bts_trx *trx, uint8_t chan_nr, uint32_t fn)
+{
+	struct osmo_phsap_prim *l1sap;
+
+	LOGP(DL1C, LOGL_DEBUG, "%s Rx -> RTP: %s\n",
+	     gsm_lchan_name(lchan), osmo_hexdump(rmsg->data, rmsg->len));
+
+	rmsg->l2h = rmsg->data;
+	msgb_push(rmsg, sizeof(*l1sap));
+	rmsg->l1h = rmsg->data;
+	l1sap = msgb_l1sap_prim(rmsg);
+	osmo_prim_init(&l1sap->oph, SAP_GSM_PH, PRIM_TCH, PRIM_OP_INDICATION,
+		       rmsg);
+	l1sap->u.tch.chan_nr = chan_nr;
+	l1sap->u.tch.fn = fn;
+
+	return l1sap_up(trx, l1sap);
+}
 
 struct msgb *gen_empty_tch_msg(struct gsm_lchan *lchan)
 {
