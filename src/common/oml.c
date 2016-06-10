@@ -1236,13 +1236,26 @@ static int oml_ipa_set_attr(struct gsm_bts *bts, struct msgb *msg)
 	struct tlv_parsed tp;
 	void *obj;
 	int rc;
+	char log_msg[100];
+	struct gsm_failure_evt_rep failure_rep;
 
 	abis_nm_debugp_foh(DOML, foh);
 	DEBUGPC(DOML, "Rx IPA SET ATTR\n");
 
 	rc = oml_tlv_parse(&tp, foh->data, msgb_l3len(msg) - sizeof(*foh));
-	if (rc < 0)
+	if (rc < 0) {
+		snprintf(log_msg, 100, "New value for IPAC Set Attribute not supported\n");
+		LOGP(DOML, LOGL_NOTICE,"%s", log_msg);
+		failure_rep.event_type = NM_EVT_PROC_FAIL;
+		failure_rep.event_serverity = NM_SEVER_MAJOR;
+		failure_rep.cause_type = NM_PCAUSE_T_MANUF;
+		failure_rep.event_cause = NM_MM_EVT_MAJ_UNSUP_ATTR;
+		failure_rep.add_text = (char *)&log_msg;
+
+		mo = gsm_objclass2mo(bts, foh->obj_class, &foh->obj_inst);
+		oml_tx_failure_event_rep(mo, failure_rep);
 		return oml_fom_ack_nack(msg, NM_NACK_INCORR_STRUCT);
+	}
 
 	/* Resolve MO by obj_class/obj_inst */
 	mo = gsm_objclass2mo(bts, foh->obj_class, &foh->obj_inst);
