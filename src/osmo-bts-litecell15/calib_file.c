@@ -41,6 +41,7 @@
 #include "l1_if.h"
 #include "lc15bts.h"
 #include "utils.h"
+#include "osmo-bts/oml.h"
 
 /**
  *  * Maximum calibration data chunk size
@@ -137,7 +138,9 @@ static int calib_file_open(struct lc15l1_hdl *fl1h,
 {
 	struct calib_send_state *st = &fl1h->st;
 	char *calib_path = fl1h->phy_inst->u.lc15.calib_path;
-        char fname[PATH_MAX];
+	char fname[PATH_MAX];
+	char log_msg[100];
+	struct gsm_failure_evt_rep failure_rep;
 
 	if (st->fp) {
 		LOGP(DL1C, LOGL_NOTICE, "L1 calibration file was left opened !!\n");
@@ -151,9 +154,21 @@ static int calib_file_open(struct lc15l1_hdl *fl1h,
 
         st->fp = fopen(fname, "rb");
         if (!st->fp) {
-                LOGP(DL1C, LOGL_ERROR,
-                        "Failed to open '%s' for calibration data.\n", fname);
-                return -1;
+		snprintf(log_msg, 100, "Failed to open '%s' for calibration data.\n", fname);
+		LOGP(DL1C, LOGL_ERROR, "%s", log_msg);
+
+		if( fl1h->phy_inst->trx ){
+			failure_rep.event_type = NM_EVT_PROC_FAIL;
+			failure_rep.event_serverity = NM_SEVER_CRITICAL;
+			failure_rep.cause_type = NM_PCAUSE_T_MANUF;
+			failure_rep.event_cause = NM_MM_EVT_CRIT_BOOT_FAIL;
+			failure_rep.add_text = (char *)&log_msg;
+
+			fl1h->phy_inst->trx->mo.obj_inst.trx_nr = fl1h->phy_inst->trx->nr;
+
+			oml_tx_failure_event_rep(&fl1h->phy_inst->trx->mo, failure_rep);
+		}
+		return -1;
         }
 	return 0;
 }
