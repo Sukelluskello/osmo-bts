@@ -1006,7 +1006,23 @@ static int down_fom(struct gsm_bts *bts, struct msgb *msg)
 	}
 
 	if (foh->obj_inst.bts_nr != 0 && foh->obj_inst.bts_nr != 0xff) {
-		LOGP(DOML, LOGL_INFO, "Formatted O&M with BTS %d out of range.\n", foh->obj_inst.bts_nr);
+		snprintf(log_msg, 100, "Formatted O&M with BTS %d out of range.\n", foh->obj_inst.bts_nr);
+		LOGP(DOML, LOGL_INFO,"%s", log_msg);
+
+		failure_rep.event_type = NM_EVT_COMM_FAIL;
+		failure_rep.event_serverity = NM_SEVER_MAJOR;
+		failure_rep.cause_type = NM_PCAUSE_T_MANUF;
+		failure_rep.event_cause = NM_MM_EVT_MAJ_UKWN_MSG;
+		failure_rep.add_text = (char *)&log_msg;
+
+		trx = gsm_bts_trx_num(bts, foh->obj_inst.trx_nr);
+		if (trx){
+			trx->mo.obj_inst.bts_nr = 0;
+			trx->mo.obj_inst.trx_nr = foh->obj_inst.trx_nr;
+			trx->mo.obj_inst.ts_nr = 0xff;
+			oml_tx_failure_event_rep(&trx->mo, failure_rep);
+		}
+
 		return oml_fom_ack_nack(msg, NM_NACK_BTSNR_UNKN);
 	}
 
