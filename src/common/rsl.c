@@ -50,6 +50,7 @@
 #include <osmo-bts/cbch.h>
 #include <osmo-bts/l1sap.h>
 #include <osmo-bts/bts_model.h>
+#include "osmo-bts/oml.h"
 
 //#define FAKE_CIPH_MODE_COMPL
 
@@ -415,6 +416,8 @@ static int rsl_rx_paging_cmd(struct gsm_bts_trx *trx, struct msgb *msg)
 	uint8_t chan_needed = 0, paging_group;
 	const uint8_t *identity_lv;
 	int rc;
+	char log_msg[100];
+	struct gsm_failure_evt_rep failure_rep;
 
 	rsl_tlv_parse(&tp, msgb_l3(msg), msgb_l3len(msg));
 
@@ -432,6 +435,26 @@ static int rsl_rx_paging_cmd(struct gsm_bts_trx *trx, struct msgb *msg)
 				 identity_lv, chan_needed);
 	if (rc < 0) {
 		/* FIXME: notfiy the BSC somehow ?*/
+		switch(rc) {
+		/* Send Failure event report of BTS page table is full to BSC */
+		case -ENOSPC:
+			snprintf(log_msg, 100, "BTS page table is full\n");
+			if(trx) {
+
+				failure_rep.event_type = NM_EVT_ENV_FAIL;
+				failure_rep.event_serverity = NM_SEVER_MINOR;
+				failure_rep.cause_type = NM_PCAUSE_T_MANUF;
+				failure_rep.event_cause = NM_MM_EVT_MIN_PAG_TAB_FULL;
+				failure_rep.add_text = (char *)&log_msg;
+
+				oml_tx_failure_event_rep(&trx->mo, failure_rep);
+			}
+			break;
+
+		default:
+			break;
+		}
+
 	}
 
 	pcu_tx_pag_req(identity_lv, chan_needed);
