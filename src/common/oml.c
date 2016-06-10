@@ -495,24 +495,56 @@ static int oml_rx_set_bts_attr(struct gsm_bts *bts, struct msgb *msg)
 	struct gsm_bts_role_bts *btsb = bts_role_bts(bts);
 	int rc, i;
 	const uint8_t *payload;
+	char log_msg[100];
+	struct gsm_failure_evt_rep failure_rep;
 
 	abis_nm_debugp_foh(DOML, foh);
 	DEBUGPC(DOML, "Rx SET BTS ATTR\n");
 
 	rc = oml_tlv_parse(&tp, foh->data, msgb_l3len(msg) - sizeof(*foh));
-	if (rc < 0)
+	if (rc < 0) {
+		snprintf(log_msg, 100, "New value for Attribute not supported\n");
+		LOGP(DOML, LOGL_NOTICE,"%s", log_msg);
+		failure_rep.event_type = NM_EVT_PROC_FAIL;
+		failure_rep.event_serverity = NM_SEVER_MAJOR;
+		failure_rep.cause_type = NM_PCAUSE_T_MANUF;
+		failure_rep.event_cause = NM_MM_EVT_MAJ_UNSUP_ATTR;
+		failure_rep.add_text = (char *)&log_msg;
+
+		oml_tx_failure_event_rep(&bts->mo, failure_rep);
 		return oml_fom_ack_nack(msg, NM_NACK_INCORR_STRUCT);
+	}
 
 	/* Test for globally unsupported stuff here */
 	if (TLVP_PRESENT(&tp, NM_ATT_BCCH_ARFCN)) {
 		uint16_t arfcn = ntohs(tlvp_val16_unal(&tp, NM_ATT_BCCH_ARFCN));
 		if (arfcn > 1024) {
-			LOGP(DOML, LOGL_NOTICE, "Given ARFCN %d is not supported.\n", arfcn);
+			snprintf(log_msg, 100, "Given ARFCN %d is not supported.\n",
+					arfcn);
+
+			LOGP(DOML, LOGL_NOTICE, "%s", log_msg);
+
+			failure_rep.event_type = NM_EVT_PROC_FAIL;
+			failure_rep.event_serverity = NM_SEVER_WARNING;
+			failure_rep.cause_type = NM_PCAUSE_T_MANUF;
+			failure_rep.event_cause = NM_MM_EVT_WARN_SW_WARN;
+			failure_rep.add_text = (char *)&log_msg;
+
+			oml_tx_failure_event_rep(&bts->mo, failure_rep);
 			return oml_fom_ack_nack(msg, NM_NACK_FREQ_NOTAVAIL);
 		}
 	}
 	/* 9.4.52 Starting Time */
 	if (TLVP_PRESENT(&tp, NM_ATT_START_TIME)) {
+		snprintf(log_msg, 100, "NM_ATT_START_TIME Attribute not supported\n");
+		LOGP(DOML, LOGL_NOTICE,"%s", log_msg);
+		failure_rep.event_type = NM_EVT_PROC_FAIL;
+		failure_rep.event_serverity = NM_SEVER_CRITICAL;
+		failure_rep.cause_type = NM_PCAUSE_T_MANUF;
+		failure_rep.event_cause = NM_MM_EVT_MAJ_UNSUP_ATTR;
+		failure_rep.add_text = (char *)&log_msg;
+
+		oml_tx_failure_event_rep(&bts->mo, failure_rep);
 		return oml_fom_ack_nack(msg, NM_NACK_SPEC_IMPL_NOTSUPP);
 	}
 
