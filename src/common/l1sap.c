@@ -46,6 +46,7 @@
 #include <osmo-bts/bts_model.h>
 #include <osmo-bts/handover.h>
 #include <osmo-bts/power_control.h>
+#include "osmo-bts/oml.h"
 
 static struct gsm_lchan *
 get_lchan_by_chan_nr(struct gsm_bts_trx *trx, unsigned int chan_nr)
@@ -933,6 +934,8 @@ int l1sap_up(struct gsm_bts_trx *trx, struct osmo_phsap_prim *l1sap)
 {
 	struct msgb *msg = l1sap->oph.msg;
 	int rc = 0;
+	char log_msg[100];
+	struct gsm_failure_evt_rep failure_rep;
 
 	switch (OSMO_PRIM_HDR(&l1sap->oph)) {
 	case OSMO_PRIM(PRIM_MPH_INFO, PRIM_OP_INDICATION):
@@ -959,8 +962,16 @@ int l1sap_up(struct gsm_bts_trx *trx, struct osmo_phsap_prim *l1sap)
 		rc = l1sap_ph_rach_ind(trx, l1sap, &l1sap->u.rach_ind);
 		break;
 	default:
-		LOGP(DL1P, LOGL_NOTICE, "unknown prim %d op %d\n",
-			l1sap->oph.primitive, l1sap->oph.operation);
+		snprintf(log_msg, 100, "unknown prim %d op %d\n",
+				l1sap->oph.primitive, l1sap->oph.operation);
+		LOGP(DL1P, LOGL_NOTICE,"%s", log_msg);
+
+		failure_rep.event_type = NM_EVT_COMM_FAIL;
+		failure_rep.event_serverity = NM_SEVER_MAJOR;
+		failure_rep.cause_type = NM_PCAUSE_T_MANUF;
+		failure_rep.event_cause = NM_MM_EVT_MAJ_UKWN_MSG;
+		failure_rep.add_text = (char *)&log_msg;
+		oml_tx_failure_event_rep(&trx->mo, failure_rep);
 		break;
 	}
 
