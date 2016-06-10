@@ -1,11 +1,38 @@
 #ifndef _OML_H
 #define _OML_H
+#include <osmo-bts/pcuif_proto.h>
 
 struct gsm_bts;
 struct gsm_abis_mo;
 struct msgb;
 struct gsm_lchan;
 
+struct gsm_failure_evt_rep {
+	uint8_t event_type;
+	uint8_t event_serverity;
+	uint8_t cause_type;
+	uint16_t event_cause;
+	char *add_text;
+};
+
+/* FIXME: can move to libosmocore */
+enum abis_mm_event_causes {
+	/* Critical causes */
+	NM_MM_EVT_CRIT_SW_FATAL		= 0x0000,
+	NM_MM_EVT_CRIT_PROC_STOP	= 0x0002,
+	NM_MM_EVT_CRIT_RTP_TOUT		= 0x032c,
+	NM_MM_EVT_CRIT_BOOT_FAIL	= 0x0401,
+	/* Major causes */
+	NM_MM_EVT_MAJ_UKWN_MSG		= 0x0002,
+	NM_MM_EVT_MAJ_RSL_FAIL		= 0x0309,
+	NM_MM_EVT_MAJ_UNSUP_ATTR	= 0x0318,
+	NM_MM_EVT_MAJ_NET_CONGEST	= 0x032b,
+	/* Minor causes */
+	NM_MM_EVT_MIN_PAG_TAB_FULL	= 0x0401,
+	/* Warning causes */
+	NM_MM_EVT_WARN_SW_WARN		= 0x0001,
+
+};
 
 int oml_init(void);
 int down_oml(struct gsm_bts *bts, struct msgb *msg);
@@ -41,5 +68,8 @@ int oml_mo_fom_ack_nack(struct gsm_abis_mo *mo, uint8_t orig_msg_type,
 /* Configure LAPDm T200 timers for this lchan according to OML */
 int oml_set_lchan_t200(struct gsm_lchan *lchan);
 extern const unsigned int oml_default_t200_ms[7];
+
+/* Transmit failure event report */
+int oml_tx_failure_event_rep(struct gsm_abis_mo *mo, struct gsm_failure_evt_rep failure_evt_rep);
 
 #endif // _OML_H */

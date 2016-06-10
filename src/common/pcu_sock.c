@@ -40,6 +40,7 @@
 #include <osmo-bts/rsl.h>
 #include <osmo-bts/signal.h>
 #include <osmo-bts/l1sap.h>
+#include <osmo-bts/oml.h>
 
 uint32_t trx_get_hlayer1(struct gsm_bts_trx *trx);
 
@@ -550,11 +551,35 @@ static int pcu_rx_act_req(struct gsm_bts *bts,
 	return 0;
 }
 
+static int pcu_rx_failure_event_rep(struct gsm_bts *bts, struct gsm_pcu_if_fail_evt_ind *fail_ind)
+{
+	struct gsm_failure_evt_rep failure_rep;
+	int rc;
+
+	LOGP(DPCU, LOGL_DEBUG, "[PCU] Failure EVT REP detailed: evt_type=%02x, evt_serv=%02x, cause_type=%02x, cause_id=%04x, text=%s\n",
+			fail_ind->event_type,
+			fail_ind->event_serverity,
+			fail_ind->cause_type,
+			fail_ind->event_cause,
+			fail_ind->add_text);
+
+	failure_rep.event_type = fail_ind->event_type;
+	failure_rep.event_serverity = fail_ind->event_serverity;
+	failure_rep.cause_type = fail_ind->cause_type;
+	failure_rep.event_cause = fail_ind->event_cause;
+	failure_rep.add_text = &fail_ind->add_text[0];
+
+	rc = oml_tx_failure_event_rep(&bts->gprs.cell.mo, failure_rep);
+	return rc;
+}
+
 static int pcu_rx(struct gsm_network *net, uint8_t msg_type,
 	struct gsm_pcu_if *pcu_prim)
 {
 	int rc = 0;
 	struct gsm_bts *bts;
+	char log_msg[100];
+	struct gsm_failure_evt_rep failure_rep;
 
 	/* FIXME: allow multiple BTS */
 	bts = llist_entry(net->bts_list.next, struct gsm_bts, list);
@@ -567,9 +592,19 @@ static int pcu_rx(struct gsm_network *net, uint8_t msg_type,
 	case PCU_IF_MSG_ACT_REQ:
 		rc = pcu_rx_act_req(bts, &pcu_prim->u.act_req);
 		break;
+	case PCU_IF_MSG_FAILURE_EVT_IND:
+		rc = pcu_rx_failure_event_rep(bts, &pcu_prim->u.failure_evt_ind);
+		break;
 	default:
-		LOGP(DPCU, LOGL_ERROR, "Received unknwon PCU msg type %d\n",
-			msg_type);
+		snprintf(log_msg, 100, "Received unknown PCU msg type %d\n", msg_type);
+		LOGP(DPCU, LOGL_ERROR,"%s", log_msg);
+
+		failure_rep.event_type = NM_EVT_COMM_FAIL;
+		failure_rep.event_serverity = NM_SEVER_MAJOR;
+		failure_rep.cause_type = NM_PCAUSE_T_MANUF;
+		failure_rep.event_cause = NM_MM_EVT_MAJ_UKWN_MSG;
+		failure_rep.add_text = (char *)&log_msg;
+		oml_tx_failure_event_rep(&bts->mo, failure_rep);
 		rc = -EINVAL;
 	}
 

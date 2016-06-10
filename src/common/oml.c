@@ -41,6 +41,8 @@
 #include <osmo-bts/bts_model.h>
 #include <osmo-bts/bts.h>
 #include <osmo-bts/signal.h>
+#include <osmo-bts/pcu_if.h>
+#include <osmo-bts/pcuif_proto.h>
 
 /* FIXME: move this to libosmocore */
 static struct tlv_definition abis_nm_att_tlvdef_ipa = {
@@ -367,6 +369,38 @@ int oml_mo_tx_sw_act_rep(struct gsm_abis_mo *mo)
 
 	msgb_put(nmsg, sizeof(struct abis_om_fom_hdr));
 	return oml_mo_send_msg(mo, nmsg, NM_MT_SW_ACTIVATED_REP);
+}
+
+/* TS 12.21 8.8.2 */
+int oml_tx_failure_event_rep(struct gsm_abis_mo *mo, struct gsm_failure_evt_rep failure_evt_rep)
+{
+	struct msgb *nmsg;
+	uint8_t cause[3];
+	int i, len;
+
+	LOGP(DOML, LOGL_INFO, "%s Tx FAILure EVT REP\n", gsm_abis_mo_name(mo));
+
+	nmsg = oml_msgb_alloc();
+	if (!nmsg)
+		return -ENOMEM;
+
+	msgb_tv_put(nmsg, NM_ATT_EVENT_TYPE, failure_evt_rep.event_type);
+	msgb_tv_put(nmsg, NM_ATT_SEVERITY, failure_evt_rep.event_serverity);
+
+	cause[0] = failure_evt_rep.cause_type;
+	for (i = 0; i < 2 ; i++)
+		cause[i + 1] = ((uint8_t*)&failure_evt_rep.event_cause)[1 - i];
+
+	msgb_tv_fixed_put(nmsg, NM_ATT_PROB_CAUSE, 3, cause);
+
+	len = strlen(failure_evt_rep.add_text);
+	if(len){
+		LOGP(DOML, LOGL_DEBUG, "%s Tx FAILure EVT REP Additional Text = %s (%d)\n", gsm_abis_mo_name(mo), failure_evt_rep.add_text, len);
+		msgb_tl16v_put(nmsg, NM_ATT_ADD_TEXT, len, failure_evt_rep.add_text);
+	}
+
+	return oml_mo_send_msg(mo, nmsg, NM_MT_FAILURE_EVENT_REP);
+
 }
 
 /* TS 12.21 9.4.53 */
