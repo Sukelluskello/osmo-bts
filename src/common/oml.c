@@ -676,13 +676,25 @@ static int oml_rx_set_radio_attr(struct gsm_bts_trx *trx, struct msgb *msg)
 	struct abis_om_fom_hdr *foh = msgb_l3(msg);
 	struct tlv_parsed tp, *tp_merged;
 	int rc;
+	char log_msg[100];
+	struct gsm_failure_evt_rep failure_rep;
 
 	abis_nm_debugp_foh(DOML, foh);
 	DEBUGPC(DOML, "Rx SET RADIO CARRIER ATTR\n");
 
 	rc = oml_tlv_parse(&tp, foh->data, msgb_l3len(msg) - sizeof(*foh));
-	if (rc < 0)
+	if (rc < 0) {
+		snprintf(log_msg, 100, "New value for Set Radio Attribute not supported\n");
+		LOGP(DOML, LOGL_NOTICE,"%s", log_msg);
+		failure_rep.event_type = NM_EVT_PROC_FAIL;
+		failure_rep.event_serverity = NM_SEVER_MAJOR;
+		failure_rep.cause_type = NM_PCAUSE_T_MANUF;
+		failure_rep.event_cause = NM_MM_EVT_MAJ_UNSUP_ATTR;
+		failure_rep.add_text = (char *)&log_msg;
+
+		oml_tx_failure_event_rep(&trx->mo, failure_rep);
 		return oml_fom_ack_nack(msg, NM_NACK_INCORR_STRUCT);
+	}
 
 	/* merge existing BTS attributes with new attributes */
 	tp_merged = tlvp_copy(trx->mo.nm_attr, trx->bts);
