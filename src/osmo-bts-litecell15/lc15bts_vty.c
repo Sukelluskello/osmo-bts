@@ -65,6 +65,35 @@ extern int lchan_deactivate(struct gsm_lchan *lchan);
 
 static struct gsm_bts *vty_bts;
 
+static const struct value_string lc15_diversity_mode_strs[] = {
+	{ LC15_DIVERSITY_SISO_A, "siso-a" },
+	{ LC15_DIVERSITY_SISO_B, "siso-b" },
+	{ LC15_DIVERSITY_MRC, "mrc" },
+	{ 0, NULL }
+};
+
+static const struct value_string lc15_pedestal_mode_strs[] = {
+	{ LC15_PEDESTAL_OFF, "off" },
+	{ LC15_PEDESTAL_ON, "on" },
+	{ 0, NULL }
+};
+
+static const struct value_string lc15_auto_adj_pwr_strs[] = {
+	{ LC15_TX_PWR_ADJ_NONE, "none" },
+	{ LC15_TX_PWR_ADJ_AUTO, "auto" },
+	{ 0, NULL }
+};
+
+static int parse_mdbm(const char *valstr, const char *unit)
+{
+	int val = atoi(valstr);
+
+	if (!strcmp(unit, "dB") || !strcmp(unit, "dBm"))
+		return val * 1000;
+	else
+		return val;
+}
+
 /* configuration */
 
 DEFUN(cfg_phy_cal_path, cfg_phy_cal_path_cmd,
@@ -321,8 +350,114 @@ DEFUN(cfg_trx_nominal_power, cfg_trx_nominal_power_cmd,
 	return CMD_SUCCESS;
 }
 
+DEFUN(cfg_bts_max_cell_size, cfg_bts_max_cell_size_cmd,
+       "max-cell-size <0-166>",
+       "Set the maximum cell size  in qbits\n")
+{
+	struct gsm_bts *bts = vty->index;;
+	struct gsm_bts_role_bts *btsb = bts_role_bts(bts);
+	int cell_size = (uint8_t)atoi(argv[0]);
+
+	if (( cell_size >  166 ) || ( cell_size < 0 )) {
+		vty_out(vty, "Max cell size must be between 0 and 166 qbits (%d) %s",
+				cell_size, VTY_NEWLINE);
+		return CMD_WARNING;
+	}
+
+	btsb->max_cell_size = (uint8_t)cell_size;
+	return CMD_SUCCESS;
+}
+
+DEFUN(cfg_bts_diversity_mode, cfg_bts_diversity_mode_cmd,
+		"diversity-mode (siso-a|siso-b|mrc)",
+		"Set reception diversity mode \n"
+		"Reception diversity mode can be (siso-a, siso-b, mrc)\n")
+{
+	struct gsm_bts *bts = vty->index;
+	struct gsm_bts_role_bts *btsb = bts_role_bts(bts);
+	int val = get_string_value(lc15_diversity_mode_strs, argv[0]);
+
+	if((val < LC15_DIVERSITY_SISO_A)  || (val > LC15_DIVERSITY_MRC)) {
+			vty_out(vty, "Invalid reception diversity mode %d%s", val, VTY_NEWLINE);
+			return CMD_WARNING;
+	}
+
+	btsb->diversity_mode = (uint8_t)val;
+	return CMD_SUCCESS;
+}
+
+DEFUN(cfg_bts_pedestal_mode, cfg_bts_pedestal_mode_cmd,
+		"pedestal-mode (on|off)",
+		"Set unused time-slot transmission in pedestal mode\n"
+		"Transmission pedestal mode can be (off, on)\n")
+{
+	struct gsm_bts *bts = vty->index;
+	struct gsm_bts_role_bts *btsb = bts_role_bts(bts);
+	int val = get_string_value(lc15_pedestal_mode_strs, argv[0]);
+
+	if((val < LC15_PEDESTAL_OFF)  || (val > LC15_PEDESTAL_ON)) {
+			vty_out(vty, "Invalid unused time-slot transmission mode %d%s", val, VTY_NEWLINE);
+			return CMD_WARNING;
+	}
+
+	btsb->pedestal_mode = (uint8_t)val;
+	return CMD_SUCCESS;
+}
+
+DEFUN(cfg_bts_auto_tx_pwr_adj, cfg_bts_auto_tx_pwr_adj_cmd,
+	"pwr-adj-mode (none|auto)",
+	"Set output power adjustment mode\n")
+{
+	struct gsm_bts *bts = vty->index;
+	struct gsm_bts_role_bts *btsb = bts_role_bts(bts);
+	int val = get_string_value(lc15_auto_adj_pwr_strs, argv[0]);
+
+	if((val < LC15_TX_PWR_ADJ_NONE)  || (val > LC15_TX_PWR_ADJ_AUTO)) {
+		vty_out(vty, "Invalid output power adjustment mode %d%s", val, VTY_NEWLINE);
+		return CMD_WARNING;
+	}
+
+	btsb->tx_pwr_adj_mode = (uint8_t)val;
+	return CMD_SUCCESS;
+}
+
+DEFUN(cfg_bts_tx_red_pwr_8psk, cfg_bts_tx_red_pwr_8psk_cmd,
+	"tx-red-pwr-8psk <0-40>",
+	"Set reduction output power for 8-PSK scheme in dB unit\n")
+{
+	struct gsm_bts *bts = vty->index;;
+	struct gsm_bts_role_bts *btsb = bts_role_bts(bts);
+	int val = atoi(argv[0]);
+
+	if (( val >  40 ) ||  ( val < 0 )) {
+		vty_out(vty, "Reduction Tx power level must be between 0 and 40 dB (%d) %s",
+		val, VTY_NEWLINE);
+		return CMD_WARNING;
+	}
+
+	btsb->tx_pwr_red_8psk = (uint8_t)val;
+	return CMD_SUCCESS;
+}
+
 void bts_model_config_write_bts(struct vty *vty, struct gsm_bts *bts)
 {
+	struct gsm_bts_role_bts *btsb = bts_role_bts(bts);
+
+	vty_out(vty, " max-cell-size %d%s",
+			btsb->max_cell_size, VTY_NEWLINE);
+
+	vty_out(vty, " diversity-mode %s%s",
+			get_value_string(lc15_diversity_mode_strs, btsb->diversity_mode), VTY_NEWLINE);
+
+	vty_out(vty, " pedestal-mode %s%s",
+			get_value_string(lc15_pedestal_mode_strs, btsb->pedestal_mode) , VTY_NEWLINE);
+
+	vty_out(vty, " pwr-adj-mode %s%s",
+			get_value_string(lc15_auto_adj_pwr_strs, btsb->tx_pwr_adj_mode), VTY_NEWLINE);
+
+	vty_out(vty, " tx-red-pwr-8psk %d%s",
+			btsb->tx_pwr_red_8psk, VTY_NEWLINE);
+
 }
 
 void bts_model_config_write_trx(struct vty *vty, struct gsm_bts_trx *trx)
@@ -405,6 +540,13 @@ int bts_model_vty_init(struct gsm_bts *bts)
 
 	install_element(BTS_NODE, &cfg_bts_auto_band_cmd);
 	install_element(BTS_NODE, &cfg_bts_no_auto_band_cmd);
+	install_element(BTS_NODE, &cfg_bts_diversity_mode_cmd);
+	install_element(BTS_NODE, &cfg_bts_pedestal_mode_cmd);
+	install_element(BTS_NODE, &cfg_bts_max_cell_size_cmd);
+	install_element(BTS_NODE, &cfg_bts_auto_tx_pwr_adj_cmd);
+	install_element(BTS_NODE, &cfg_bts_tx_red_pwr_8psk_cmd);
+
+	install_element(TRX_NODE, &cfg_trx_nominal_power_cmd);
 
 	install_element(PHY_INST_NODE, &cfg_phy_dsp_trace_f_cmd);
 	install_element(PHY_INST_NODE, &cfg_phy_no_dsp_trace_f_cmd);

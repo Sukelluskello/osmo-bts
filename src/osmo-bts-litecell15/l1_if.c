@@ -1077,6 +1077,7 @@ static int activate_rf_compl_cb(struct gsm_bts_trx *trx, struct msgb *resp,
 			oml_mo_state_chg(&trx->ts[i].mo, NM_OPSTATE_DISABLED, NM_AVSTATE_DEPENDENCY);
 	} else {
 		bts_update_status(BTS_STATUS_RF_ACTIVE, 0);
+
 		oml_mo_state_chg(&trx->mo, NM_OPSTATE_DISABLED, NM_AVSTATE_OFF_LINE);
 		oml_mo_state_chg(&trx->bb_transc.mo, NM_OPSTATE_DISABLED, NM_AVSTATE_OFF_LINE);
 	}
@@ -1091,17 +1092,27 @@ int l1if_activate_rf(struct lc15l1_hdl *hdl, int on)
 {
 	struct msgb *msg = sysp_msgb_alloc();
 	Litecell15_Prim_t *sysp = msgb_sysprim(msg);
+	struct gsm_bts_role_bts *btsb = bts_role_bts(hdl->phy_inst->trx->bts);
 
 	if (on) {
 		sysp->id = Litecell15_PrimId_ActivateRfReq;
 		sysp->u.activateRfReq.msgq.u8UseTchMsgq = 0;
 		sysp->u.activateRfReq.msgq.u8UsePdtchMsgq = pcu_direct;
 
-		sysp->u.activateRfReq.u8UnusedTsMode = 0;
+		sysp->u.activateRfReq.u8UnusedTsMode = btsb->pedestal_mode;
 		sysp->u.activateRfReq.u8McCorrMode = 0;
 
+		/* diversity mode: 0: SISO-A, 1: SISO-B, 2: MRC */
+		sysp->u.activateRfReq.u8DiversityMode = btsb->diversity_mode;
+
 		/* maximum cell size in quarter-bits, 90 == 12.456 km */
-		sysp->u.activateRfReq.u8MaxCellSize = 90;
+		sysp->u.activateRfReq.u8MaxCellSize = btsb->max_cell_size;
+
+		/* auto tx power adjustment mode 0:none, 1: automatic*/
+		sysp->u.activateRfReq.autoPowerAdjust.u8EnAutoPowerAdjust = btsb->tx_pwr_adj_mode;
+
+		/* PSK modulation scheme maximum power level */
+		sysp->u.activateRfReq.autoPowerAdjust.u8PowerReduction8Psk = btsb->tx_pwr_red_8psk;
 	} else {
 		sysp->id = Litecell15_PrimId_DeactivateRfReq;
 	}

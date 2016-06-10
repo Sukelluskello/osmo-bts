@@ -22,6 +22,22 @@ enum l1prim_type {
 	L1P_T_IND,
 };
 
+enum lc15_diversity_mode{
+	LC15_DIVERSITY_SISO_A = 0,
+	LC15_DIVERSITY_SISO_B,
+	LC15_DIVERSITY_MRC,
+};
+
+enum lc15_pedestal_mode{
+	LC15_PEDESTAL_OFF = 0,
+	LC15_PEDESTAL_ON,
+};
+
+enum lc15_auto_pwr_adjust_mode{
+	LC15_TX_PWR_ADJ_NONE = 0,
+	LC15_TX_PWR_ADJ_AUTO,
+};
+
 enum l1prim_type lc15bts_get_l1prim_type(GsmL1_PrimId_t id);
 const struct value_string lc15bts_l1prim_names[GsmL1_PrimId_NUM+1];
 GsmL1_PrimId_t lc15bts_get_l1prim_conf(GsmL1_PrimId_t id);
@@ -60,5 +76,12 @@ enum pdch_cs {
 };
 
 const uint8_t pdch_msu_size[_NUM_PDCH_CS];
+
+/* LC15 default parameters */
+#define GSM_BTS_MAX_CELL_SIZE_DEFAULT	166	/* 166 qbits is default  value */
+#define GSM_BTS_DIVERSITY_MODE_DEFAULT	2	/* MRC is default mode */
+#define GSM_BTS_PEDESTAL_MODE_DEFAULT	0	/* Unused TS is off by default */
+#define GSM_BTS_TX_PWR_ADJ_DEFAULT	0	/* Default Tx power auto adjustment is none */
+#define GSM_BTS_TX_RED_PWR_8PSK_DEFAULT	0	/* Default 8-PSK maximum power level is 0 dB */
 
 #endif /* LC15BTS_H */

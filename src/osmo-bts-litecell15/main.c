@@ -72,6 +72,12 @@ int bts_model_init(struct gsm_bts *bts)
 
 	btsb = bts_role_bts(bts);
 	btsb->support.ciphers = CIPHER_A5(1) | CIPHER_A5(2) | CIPHER_A5(3);
+	/* specific default values for LC15 platform */
+	btsb->max_cell_size = GSM_BTS_MAX_CELL_SIZE_DEFAULT;
+	btsb->diversity_mode = GSM_BTS_DIVERSITY_MODE_DEFAULT;
+	btsb->pedestal_mode = GSM_BTS_PEDESTAL_MODE_DEFAULT;
+	btsb->tx_pwr_adj_mode = GSM_BTS_TX_PWR_ADJ_DEFAULT;
+	btsb->tx_pwr_red_8psk = GSM_BTS_TX_RED_PWR_8PSK_DEFAULT;
 
 	rc = oml_router_init(bts, OML_ROUTER_PATH, &accept_fd, &read_fd);
 	if (rc < 0) {
