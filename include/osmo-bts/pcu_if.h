@@ -19,4 +19,8 @@ int pcu_tx_pch_data_cnf(uint32_t fn, uint8_t *data, uint8_t len);
 int pcu_sock_init(const char *path);
 void pcu_sock_exit(void);
 
+int  pcu_tx_mm_start_meas(struct gsm_bts *bts, uint8_t meas_id);
+int  pcu_tx_mm_meas_res_req(struct gsm_bts *bts, uint8_t meas_id);
+int  pcu_tx_mm_stop_meas(struct gsm_bts *bts, uint8_t meas_id);
+
 #endif /* _PCU_IF_H */

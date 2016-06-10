@@ -90,6 +90,9 @@ static struct tlv_definition abis_nm_att_tlvdef_ipa = {
 		[NM_ATT_IPACC_SEC_POSSIBLE] =	{ TLV_TYPE_TL16V },
 		[NM_ATT_IPACC_IML_SSL_STATE] =	{ TLV_TYPE_TL16V },
 		[NM_ATT_IPACC_REVOC_DATE] =	{ TLV_TYPE_TL16V },
+		/* GSM 12.21 attributes */
+		[NM_ATT_MEAS_TYPE] = 		{ TLV_TYPE_TV },
+		[NM_ATT_MEAS_RES] = 		{ TLV_TYPE_TV },
 	},
 };
 
@@ -401,6 +404,81 @@ int oml_tx_failure_event_rep(struct gsm_abis_mo *mo, struct gsm_failure_evt_rep 
 
 	return oml_mo_send_msg(mo, nmsg, NM_MT_FAILURE_EVENT_REP);
 
+}
+
+/* TS 12.21 8.10.2 */
+int oml_tx_mm_meas_res_resp(struct gsm_abis_mo *mo, struct gsm_pcu_if_meas_resp meas_resp)
+{
+	struct msgb *nmsg;
+
+	LOGP(DOML, LOGL_INFO, "%s Tx MEASurement RESult RESPonse\n", gsm_abis_mo_name(mo));
+
+	nmsg = oml_msgb_alloc();
+	if (!nmsg)
+		return -ENOMEM;
+
+	msgb_tv_put(nmsg, NM_ATT_MEAS_TYPE, meas_resp.meas_id);
+	msgb_tl16v_put(nmsg, NM_ATT_MEAS_RES, meas_resp.len, meas_resp.data);
+
+	return oml_mo_send_msg(mo, nmsg, NM_MT_MEAS_RES_RESP);
+}
+
+int oml_tx_mm_start_meas_ack_nack(struct gsm_abis_mo *mo, uint8_t meas_id, uint8_t nack_cause)
+{
+	struct msgb *msg;
+	uint8_t msg_type;
+
+	msg = oml_msgb_alloc();
+	if (!msg)
+		return -ENOMEM;
+
+	if (nack_cause) {
+		msg_type =  NM_MT_IPACC_START_MEAS_NACK;
+		msgb_tv_put(msg, NM_ATT_NACK_CAUSES, nack_cause);
+		msgb_tv_put(msg, NM_ATT_MEAS_TYPE, meas_id);
+	} else {
+		msg_type = NM_MT_IPACC_START_MEAS_ACK;
+		msgb_tv_put(msg, NM_ATT_MEAS_TYPE, meas_id);
+	}
+
+	return oml_mo_send_msg(mo, msg, msg_type);
+}
+
+int oml_tx_mm_stop_meas_ack_nack(struct gsm_abis_mo *mo, uint8_t meas_id, uint8_t nack_cause)
+{
+	struct msgb *msg;
+	uint8_t msg_type;
+
+	msg = oml_msgb_alloc();
+	if (!msg)
+		return -ENOMEM;
+
+	if (nack_cause) {
+		msg_type =  NM_MT_IPACC_STOP_MEAS_NACK;
+		msgb_tv_put(msg, NM_ATT_NACK_CAUSES, nack_cause);
+		msgb_tv_put(msg, NM_ATT_MEAS_TYPE, meas_id);
+	} else {
+		msg_type = NM_MT_IPACC_STOP_MEAS_ACK;
+		msgb_tv_put(msg, NM_ATT_MEAS_TYPE, meas_id);
+	}
+
+	return oml_mo_send_msg(mo, msg, msg_type);
+}
+
+int oml_tx_mm_meas_res_req_nack(struct gsm_abis_mo *mo, uint8_t meas_id, uint8_t nack_cause)
+{
+	struct msgb *msg;
+	uint8_t msg_type;
+
+	msg = oml_msgb_alloc();
+	if (!msg)
+		return -ENOMEM;
+
+	msg_type =  NM_MT_IPACC_MEAS_RES_REQ_NACK;
+	msgb_tv_put(msg, NM_ATT_NACK_CAUSES, nack_cause);
+	msgb_tv_put(msg, NM_ATT_MEAS_TYPE, meas_id);
+
+	return oml_mo_send_msg(mo, msg, msg_type);
 }
 
 /* TS 12.21 9.4.53 */
@@ -976,6 +1054,197 @@ static int oml_rx_chg_adm_state(struct gsm_bts *bts, struct msgb *msg)
 	return bts_model_chg_adm_state(bts, mo, obj, adm_state);
 }
 
+/* GSM 12.21 section 8.10.1 */
+static int  oml_rx_mm_meas_res_req(struct gsm_bts *bts, struct msgb *msg)
+{
+	struct abis_om_fom_hdr *foh = msgb_l3(msg);
+	struct gsm_abis_mo *mo = &bts->gprs.cell.mo;
+	struct tlv_parsed tp;
+	int rc;
+	char log_msg[100];
+	struct gsm_failure_evt_rep failure_rep;
+	uint8_t meas_id;
+
+	LOGP(DOML, LOGL_DEBUG, "%s Rx MEAS RES REQ\n", gsm_abis_mo_name(mo));
+
+	rc = oml_tlv_parse(&tp, foh->data, msgb_l3len(msg) - sizeof(*foh));
+	if (rc < 0) {
+		snprintf(log_msg, 100, "New value for Attribute not supported\n");
+		LOGP(DOML, LOGL_NOTICE,"%s", log_msg);
+		failure_rep.event_type = NM_EVT_PROC_FAIL;
+		failure_rep.event_serverity = NM_SEVER_MAJOR;
+		failure_rep.cause_type = NM_PCAUSE_T_MANUF;
+		failure_rep.event_cause = NM_MM_EVT_MAJ_UNSUP_ATTR;
+		failure_rep.add_text = (char *)&log_msg;
+
+		oml_tx_failure_event_rep(mo, failure_rep);
+		return oml_fom_ack_nack(msg, NM_NACK_INCORR_STRUCT);
+	}
+
+	if (!TLVP_PRESENT(&tp, NM_ATT_MEAS_TYPE)) {
+		   snprintf(log_msg, 100, "%s NM_ATT_MEAS_TYPE not found\n", gsm_abis_mo_name(mo));
+		   LOGP(DOML, LOGL_ERROR,"%s", log_msg);
+		   failure_rep.event_type = NM_EVT_PROC_FAIL;
+		   failure_rep.event_serverity = NM_SEVER_MAJOR;
+		   failure_rep.cause_type = NM_PCAUSE_T_MANUF;
+		   failure_rep.event_cause = NM_MM_EVT_MAJ_UNSUP_ATTR;
+		   failure_rep.add_text = (char *)&log_msg;
+
+		   oml_tx_failure_event_rep(mo, failure_rep);
+		   return oml_fom_ack_nack(msg, NM_NACK_INCORR_STRUCT);
+	}
+
+	/* Get measurement ID */
+	meas_id = *TLVP_VAL(&tp, NM_ATT_MEAS_TYPE);
+
+	/* send request to PCU */
+	rc = pcu_tx_mm_meas_res_req(bts, meas_id);
+	if (rc < 0) {
+		snprintf(log_msg, 100, "%s PCU socket may not be ready for measurement ID (%d)\n", gsm_abis_mo_name(mo), meas_id);
+		LOGP(DOML, LOGL_ERROR,"%s", log_msg);
+		failure_rep.event_type = NM_EVT_PROC_FAIL;
+		failure_rep.event_serverity = NM_SEVER_MAJOR;
+		failure_rep.cause_type = NM_PCAUSE_T_MANUF;
+		failure_rep.event_cause = NM_MM_EVT_MAJ_NET_CONGEST;
+		failure_rep.add_text = (char *)&log_msg;
+
+		/*send alarm to indicate PCU link is not ready */
+		oml_tx_failure_event_rep(mo, failure_rep);
+
+		/*send MEAS RES REQ NACK */
+		return oml_tx_mm_meas_res_req_nack(mo, meas_id, NM_NACK_NOTH_REPORT_EXIST);
+	}
+
+	return 0;
+}
+
+/* GSM 12.21 section 8.10.3 */
+static int  oml_rx_mm_start_meas(struct gsm_bts *bts, struct msgb *msg)
+{
+	struct abis_om_fom_hdr *foh = msgb_l3(msg);
+	struct gsm_abis_mo *mo = &bts->gprs.cell.mo;
+	struct tlv_parsed tp;
+	int rc;
+	char log_msg[100];
+	struct gsm_failure_evt_rep failure_rep;
+	uint8_t meas_id;
+
+	LOGP(DOML, LOGL_DEBUG, "%s Rx START MEAS\n", gsm_abis_mo_name(mo));
+
+	rc = oml_tlv_parse(&tp, foh->data, msgb_l3len(msg) - sizeof(*foh));
+	if (rc < 0) {
+		snprintf(log_msg, 100, "New value for Attribute not supported\n");
+		LOGP(DOML, LOGL_NOTICE,"%s", log_msg);
+		failure_rep.event_type = NM_EVT_PROC_FAIL;
+		failure_rep.event_serverity = NM_SEVER_MAJOR;
+		failure_rep.cause_type = NM_PCAUSE_T_MANUF;
+		failure_rep.event_cause = NM_MM_EVT_MAJ_UNSUP_ATTR;
+		failure_rep.add_text = (char *)&log_msg;
+
+		oml_tx_failure_event_rep(mo, failure_rep);
+		return oml_fom_ack_nack(msg, NM_NACK_INCORR_STRUCT);
+	}
+
+	if (!TLVP_PRESENT(&tp, NM_ATT_MEAS_TYPE)) {
+		snprintf(log_msg, 100, "%s PCU socket may not be ready for measurement ID (%d)\n", gsm_abis_mo_name(mo), meas_id);
+		LOGP(DOML, LOGL_ERROR,"%s", log_msg);
+		failure_rep.event_type = NM_EVT_PROC_FAIL;
+		failure_rep.event_serverity = NM_SEVER_MAJOR;
+		failure_rep.cause_type = NM_PCAUSE_T_MANUF;
+		failure_rep.event_cause = NM_MM_EVT_MAJ_UNSUP_ATTR;
+		failure_rep.add_text = (char *)&log_msg;
+
+		oml_tx_failure_event_rep(mo, failure_rep);
+		return oml_fom_ack_nack(msg, NM_NACK_INCORR_STRUCT);
+	}
+
+	/* Get measurement ID */
+	meas_id = *TLVP_VAL(&tp, NM_ATT_MEAS_TYPE);
+
+	/* send request to PCU */
+	rc = pcu_tx_mm_start_meas(bts, meas_id);
+	if (rc < 0) {
+		snprintf(log_msg, 100, "%s PCU socket may not be ready\n", gsm_abis_mo_name(mo));
+		LOGP(DOML, LOGL_ERROR,"%s", log_msg);
+		failure_rep.event_type = NM_EVT_PROC_FAIL;
+		failure_rep.event_serverity = NM_SEVER_MAJOR;
+		failure_rep.cause_type = NM_PCAUSE_T_MANUF;
+		failure_rep.event_cause = NM_MM_EVT_MAJ_NET_CONGEST;
+		failure_rep.add_text = (char *)&log_msg;
+
+		/*send alarm to indicate PCU link is not ready */
+		oml_tx_failure_event_rep(mo, failure_rep);
+
+		/*send START MEAS NACK */
+		return oml_tx_mm_start_meas_ack_nack(mo, meas_id, NM_NACK_NOTH_REPORT_EXIST);
+	}
+
+	return 0;
+}
+
+static int  oml_rx_mm_stop_meas(struct gsm_bts *bts, struct msgb *msg)
+{
+	struct abis_om_fom_hdr *foh = msgb_l3(msg);
+	struct gsm_abis_mo *mo = &bts->gprs.cell.mo;
+	struct tlv_parsed tp;
+	int rc;
+	char log_msg[100];
+	struct gsm_failure_evt_rep failure_rep;
+	uint8_t meas_id;
+
+	LOGP(DOML, LOGL_DEBUG, "%s Rx STOP MEAS\n", gsm_abis_mo_name(mo));
+
+	rc = oml_tlv_parse(&tp, foh->data, msgb_l3len(msg) - sizeof(*foh));
+	if (rc < 0) {
+		snprintf(log_msg, 100, "New value for Attribute not supported\n");
+		LOGP(DOML, LOGL_NOTICE,"%s", log_msg);
+		failure_rep.event_type = NM_EVT_PROC_FAIL;
+		failure_rep.event_serverity = NM_SEVER_MAJOR;
+		failure_rep.cause_type = NM_PCAUSE_T_MANUF;
+		failure_rep.event_cause = NM_MM_EVT_MAJ_UNSUP_ATTR;
+		failure_rep.add_text = (char *)&log_msg;
+
+		oml_tx_failure_event_rep(mo, failure_rep);
+		return oml_fom_ack_nack(msg, NM_NACK_INCORR_STRUCT);
+	}
+
+	if (!TLVP_PRESENT(&tp, NM_ATT_MEAS_TYPE)) {
+		snprintf(log_msg, 100, "%s PCU socket may not be ready for measurement ID (%d)\n", gsm_abis_mo_name(mo), meas_id);
+		LOGP(DOML, LOGL_ERROR,"%s", log_msg);
+		failure_rep.event_type = NM_EVT_PROC_FAIL;
+		failure_rep.event_serverity = NM_SEVER_MAJOR;
+		failure_rep.cause_type = NM_PCAUSE_T_MANUF;
+		failure_rep.event_cause = NM_MM_EVT_MAJ_UNSUP_ATTR;
+		failure_rep.add_text = (char *)&log_msg;
+
+		oml_tx_failure_event_rep(mo, failure_rep);
+		return oml_fom_ack_nack(msg, NM_NACK_INCORR_STRUCT);
+	}
+
+	/* Get measurement ID */
+	meas_id = *TLVP_VAL(&tp, NM_ATT_MEAS_TYPE);
+
+	/* send request to PCU */
+	rc = pcu_tx_mm_stop_meas(bts, meas_id);
+	if (rc < 0) {
+		snprintf(log_msg, 100, "%s PCU socket may not be ready\n", gsm_abis_mo_name(mo));
+		LOGP(DOML, LOGL_ERROR,"%s", log_msg);
+		failure_rep.event_type = NM_EVT_PROC_FAIL;
+		failure_rep.event_serverity = NM_SEVER_MAJOR;
+		failure_rep.cause_type = NM_PCAUSE_T_MANUF;
+		failure_rep.event_cause = NM_MM_EVT_MAJ_NET_CONGEST;
+		failure_rep.add_text = (char *)&log_msg;
+
+		/*send alarm to indicate PCU link is not ready */
+		oml_tx_failure_event_rep(mo, failure_rep);
+
+		/*send STOP MEAS NACK */
+		return oml_tx_mm_stop_meas_ack_nack(mo, meas_id, NM_NACK_NOTH_REPORT_EXIST);
+	}
+
+	return 0;
+}
+
 static int down_fom(struct gsm_bts *bts, struct msgb *msg)
 {
 	struct abis_om_fom_hdr *foh = msgb_l3(msg);
@@ -1052,6 +1321,15 @@ static int down_fom(struct gsm_bts *bts, struct msgb *msg)
 		break;
 	case NM_MT_IPACC_SET_ATTR:
 		ret = oml_ipa_set_attr(bts, msg);
+		break;
+	case NM_MT_START_MEAS:
+		ret = oml_rx_mm_start_meas(bts, msg);
+		break;
+	case NM_MT_MEAS_RES_REQ:
+		ret = oml_rx_mm_meas_res_req(bts, msg);
+		break;
+	case NM_MT_STOP_MEAS:
+		ret = oml_rx_mm_stop_meas(bts, msg);
 		break;
 	default:
 		snprintf(log_msg, 100, "unknown Formatted O&M msg_type 0x%02x\n", foh->msg_type);

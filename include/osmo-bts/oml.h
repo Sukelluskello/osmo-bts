@@ -16,6 +16,14 @@ struct gsm_failure_evt_rep {
 };
 
 /* FIXME: can move to libosmocore */
+enum abis_nm_msgtype_ipacc_appended {
+	NM_MT_IPACC_START_MEAS_ACK 	= 0xde,
+	NM_MT_IPACC_MEAS_RES_REQ_NACK	= 0xfc,
+	NM_MT_IPACC_START_MEAS_NACK	= 0xfd,
+	NM_MT_IPACC_STOP_MEAS_ACK 	= 0xdf,
+	NM_MT_IPACC_STOP_MEAS_NACK	= 0xfe,
+};
+
 enum abis_mm_event_causes {
 	/* Critical causes */
 	NM_MM_EVT_CRIT_SW_FATAL		= 0x0000,
@@ -71,5 +79,12 @@ extern const unsigned int oml_default_t200_ms[7];
 
 /* Transmit failure event report */
 int oml_tx_failure_event_rep(struct gsm_abis_mo *mo, struct gsm_failure_evt_rep failure_evt_rep);
+
+/* Transmit start/stop/request measurement messages*/
+int oml_tx_mm_start_meas_ack_nack(struct gsm_abis_mo *mo, uint8_t meas_id, uint8_t nack_cause);
+int oml_tx_mm_meas_res_req_nack(struct gsm_abis_mo *mo, uint8_t meas_id, uint8_t nack_cause);
+int oml_tx_mm_meas_res_resp(struct gsm_abis_mo *mo, struct gsm_pcu_if_meas_resp meas_resp);
+int oml_tx_mm_stop_meas_ack_nack(struct gsm_abis_mo *mo, uint8_t meas_id, uint8_t nack_cause);
+
 
 #endif // _OML_H */
