@@ -492,6 +492,8 @@ static int mph_info_req(struct gsm_bts_trx *trx, struct msgb *msg,
 	uint8_t chan_nr;
 	struct gsm_lchan *lchan;
 	int rc = 0;
+	char log_msg[100];
+	struct gsm_failure_evt_rep failure_rep;
 
 	switch (l1sap->u.info.type) {
 	case PRIM_INFO_ACT_CIPH:
@@ -532,8 +534,15 @@ static int mph_info_req(struct gsm_bts_trx *trx, struct msgb *msg,
 		msgb_free(msg);
 		break;
 	default:
-		LOGP(DL1C, LOGL_NOTICE, "unknown MPH-INFO.req %d\n",
-			l1sap->u.info.type);
+		snprintf(log_msg, 100, "unknown MPH-INFO.req %d\n", l1sap->u.info.type);
+		LOGP(DL1C, LOGL_NOTICE,"%s", log_msg);
+
+		failure_rep.event_type = NM_EVT_COMM_FAIL;
+		failure_rep.event_serverity = NM_SEVER_MAJOR;
+		failure_rep.cause_type = NM_PCAUSE_T_MANUF;
+		failure_rep.event_cause = NM_MM_EVT_MAJ_UKWN_MSG;
+		failure_rep.add_text = (char *)&log_msg;
+		oml_tx_failure_event_rep(&trx->mo, failure_rep);
 		rc = -EINVAL;
 	}
 
