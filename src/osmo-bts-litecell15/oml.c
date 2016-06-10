@@ -782,10 +782,32 @@ l1if_hLayer_to_lchan(struct gsm_bts_trx *trx, uint32_t hLayer2)
 static void alive_timer_cb(void *data)
 {
 	struct lc15l1_hdl *fl1h = data;
+	char log_msg[100];
+	struct gsm_failure_evt_rep failure_rep;
+	int rc;
 
 	if (fl1h->alive_prim_cnt == 0) {
-		LOGP(DL1C, LOGL_FATAL, "DSP L1 is no longer sending primitives!\n");
-		exit(23);
+
+		if(fl1h->failure_rep_sent)
+			exit(23);
+
+		snprintf(log_msg, 100, "DSP L1 is no longer sending primitives!\n");
+		LOGP(DL1C, LOGL_FATAL,"%s", log_msg);
+
+		if( fl1h->phy_inst->trx ){
+			failure_rep.event_type = NM_EVT_PROC_FAIL;
+			failure_rep.event_serverity = NM_SEVER_CRITICAL;
+			failure_rep.cause_type = NM_PCAUSE_T_MANUF;
+			failure_rep.event_cause = NM_MM_EVT_CRIT_SW_FATAL;
+			failure_rep.add_text = (char *)&log_msg;
+
+			fl1h->phy_inst->trx->mo.obj_inst.trx_nr = fl1h->phy_inst->trx->nr;
+
+			rc = oml_tx_failure_event_rep(&fl1h->phy_inst->trx->mo, failure_rep);
+			if(!rc)
+				fl1h->failure_rep_sent = 1;
+		}
+
 	}
 	fl1h->alive_prim_cnt = 0;
 	osmo_timer_schedule(&fl1h->alive_timer, 5, 0);
