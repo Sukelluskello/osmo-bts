@@ -981,9 +981,27 @@ static int down_fom(struct gsm_bts *bts, struct msgb *msg)
 	struct abis_om_fom_hdr *foh = msgb_l3(msg);
 	struct gsm_bts_trx *trx;
 	int ret;
+	char log_msg[100];
+	struct gsm_failure_evt_rep failure_rep;
 
 	if (msgb_l2len(msg) < sizeof(*foh)) {
-		LOGP(DOML, LOGL_NOTICE, "Formatted O&M message too short\n");
+		snprintf(log_msg, 100, "Formatted O&M message too short\n");
+		LOGP(DOML, LOGL_NOTICE,"%s", log_msg);
+
+		failure_rep.event_type = NM_EVT_COMM_FAIL;
+		failure_rep.event_serverity = NM_SEVER_MAJOR;
+		failure_rep.cause_type = NM_PCAUSE_T_MANUF;
+		failure_rep.event_cause = NM_MM_EVT_MAJ_UKWN_MSG;
+		failure_rep.add_text = (char *)&log_msg;
+
+		trx = gsm_bts_trx_num(bts, foh->obj_inst.trx_nr);
+		if (trx) {
+			trx->mo.obj_inst.bts_nr = 0;
+			trx->mo.obj_inst.trx_nr = foh->obj_inst.trx_nr;
+			trx->mo.obj_inst.ts_nr = 0xff;
+			oml_tx_failure_event_rep(&trx->mo, failure_rep);
+		}
+
 		return -EIO;
 	}
 
